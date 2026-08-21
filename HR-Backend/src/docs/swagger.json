@@ -1,0 +1,218 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "HR Backend API",
+        "version": "1.0.0",
+        "description": "API documentation for onboarding and document endpoints"
+    },
+    "servers": [
+        {
+            "url": "http://localhost:5001"
+        }
+    ],
+    "paths": {
+        "/api/onboarding/{employeeId}": {
+            "get": {
+                "tags": [
+                    "Onboarding"
+                ],
+                "summary": "Get onboarding data for an employee",
+                "parameters": [
+                    {
+                        "name": "employeeId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Onboarding"
+                ],
+                "summary": "Save onboarding partial data",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Saved"
+                    },
+                    "400": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/onboarding/{employeeId}/submit": {
+            "post": {
+                "tags": [
+                    "Onboarding"
+                ],
+                "summary": "Submit onboarding",
+                "parameters": [
+                    {
+                        "name": "employeeId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Submitted"
+                    },
+                    "400": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/onboarding/{employeeId}/request-edit": {
+            "post": {
+                "tags": [
+                    "Onboarding"
+                ],
+                "summary": "Request admin to allow edits",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "reason": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created"
+                    }
+                }
+            }
+        },
+        "/api/onboarding/{employeeId}/edit-requests": {
+            "get": {
+                "tags": [
+                    "Onboarding"
+                ],
+                "summary": "List edit requests (admin)"
+            }
+        },
+        "/api/onboarding/{employeeId}/approve": {
+            "post": {
+                "tags": [
+                    "Onboarding"
+                ],
+                "summary": "Admin approve"
+            }
+        },
+        "/api/onboarding/{employeeId}/reject": {
+            "post": {
+                "tags": [
+                    "Onboarding"
+                ],
+                "summary": "Admin reject"
+            }
+        },
+        "/api/upload/presign": {
+            "post": {
+                "tags": [
+                    "Documents"
+                ],
+                "summary": "Get presigned upload URL",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "filename": {
+                                        "type": "string"
+                                    },
+                                    "contentType": {
+                                        "type": "string"
+                                    },
+                                    "employeeId": {
+                                        "type": "integer"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/documents": {
+            "post": {
+                "tags": [
+                    "Documents"
+                ],
+                "summary": "Register document",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "employeeId": {
+                                        "type": "integer"
+                                    },
+                                    "url": {
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "type": "string"
+                                    },
+                                    "filename": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/api/documents/{docId}": {
+                "delete": {
+                    "tags": [
+                        "Documents"
+                    ],
+                    "summary": "Delete document",
+                    "parameters": [
+                        {
+                            "name": "docId",
+                            "in": "path",
+                            "required": true,
+                            "schema": {
+                                "type": "integer"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}

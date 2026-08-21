@@ -1,0 +1,46 @@
+{
+  "name": "hr-backend",
+  "version": "1.0.0",
+  "description": "HR Management Backend API using Node.js, Express, and PostgreSQL",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "dev:sync": "node scripts/sync-db.js",
+    "test": "cross-env NODE_ENV=test jest"
+  },
+  "keywords": [
+    "express",
+    "node",
+    "postgresql",
+    "hr"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "aws-sdk": "^2.1482.0",
+    "axios": "^1.12.2",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "express-validator": "^6.15.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "node-cache": "^5.1.2",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.10",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.16.3",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.7",
+    "swagger-ui-express": "^4.6.3",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "jest": "^30.2.0",
+    "nodemon": "^3.0.3",
+    "supertest": "^7.1.4"
+  }
+}
