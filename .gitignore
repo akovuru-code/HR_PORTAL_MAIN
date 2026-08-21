@@ -10,7 +10,9 @@ node_modules/
 Credentials*.txt
 
 # Uploads
-uploads/
+HR-Backend/uploads/*
+!HR-Backend/uploads/companylogo/
+!HR-Backend/uploads/companylogo/**
 
 # Build output
 dist/
