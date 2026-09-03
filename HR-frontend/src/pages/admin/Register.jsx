@@ -8,13 +8,15 @@ export default function AdminRegister() {
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
-    const [role, setRole] = useState("admin");
+    const role = "employee";
     const [fillingCompany, setFillingCompany] = useState("");
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
     const navigate = useNavigate();
     const { user } = useAuth();
-    const isAdmin = user?.role?.toLowerCase() === "admin";
+    const accountType = user?.accountType || user?.role?.toLowerCase();
+    const isAdmin = accountType === "root_admin" || accountType === "admin";
+    const canCreateEmployee = accountType === "root_admin" || user?.permissions?.includes("employee:create");
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -49,7 +51,7 @@ export default function AdminRegister() {
         }
     };
 
-    if (!isAdmin) {
+    if (!isAdmin || !canCreateEmployee) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#e9edf4]">
                 <div className="bg-white rounded-xl shadow-lg p-8 text-center">
@@ -80,7 +82,7 @@ export default function AdminRegister() {
                         ***Note : For Employee accounts, please create using the provided email and temporary password as temp123***
                     </div>
 
-                    <h2 className="text-3xl font-semibold text-center mb-8 text-[#1a3353]">Create Account</h2>
+                    <h2 className="text-3xl font-semibold text-center mb-8 text-[#1a3353]">Create Employee</h2>
                     {error && <div className="text-red-600 mb-2 text-center">{error}</div>}
                     {success && <div className="text-green-600 mb-2 text-center">{success}</div>}
                     <form onSubmit={handleSubmit}>
@@ -108,17 +110,6 @@ export default function AdminRegister() {
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                         />
-                        <div>
-                            <label className="block text-[#1a3353] mb-1">Role</label>
-                            <select
-                                className="w-full mb-4 p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-200"
-                                value={role}
-                                onChange={e => setRole(e.target.value)}
-                            >
-                                <option value="admin">Admin</option>
-                                <option value="employee">Employee</option>
-                            </select>
-                        </div>
 
                         <div>
                             <label className="block text-[#1a3353] mb-1">Filling Company</label>

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 const authenticateToken = require('../middleware/auth');
+const { requireAdmin, accountType } = require('../middleware/authorization');
 const Employee = require('../models/employee');
 const EditRequest = require('../models/editRequest');
 const Document = require('../models/document');
@@ -82,7 +83,36 @@ const WorkEmployer = require('../models/workEmployer');
 const WorkClientDetail = require('../models/workClientDetail');
 const CompanySnapshot = require('../models/companySnapshot');
 const Invoice = require('../models/invoice');
+const VendorEmployeeRate = require('../models/vendorEmployeeRate');
 const Recruiting = require('../models/recruiting');
+
+// Every /api/admin operation requires an administrative account. Fine-grained
+// permission checks are applied as the RBAC rollout expands individual modules.
+router.use(authenticateToken, requireAdmin, (req, res, next) => {
+  if (accountType(req.user) === 'root_admin') return next();
+  // Default-deny module policy for legacy /api/admin endpoints. New endpoints
+  // should declare their permission explicitly instead of relying on this map.
+  const path = req.path.toLowerCase();
+  let permission = 'operations:manage';
+  if (path === '/notes' || path.startsWith('/notes/')) return next();
+  if (path === '/growth' || path === '/alerts' || path === '/status-summary') permission = 'dashboard:view';
+  else if (path.includes('edit-requests')) permission = 'employee_modification:approve';
+  else if (path.includes('timesheet')) {
+    permission = (path.endsWith('/approve') || path.endsWith('/reject')) ? 'timesheet:approve'
+      : req.method === 'GET' ? 'timesheet:view'
+      : req.method === 'PATCH' && req.body?.status ? 'timesheet:approve'
+      : 'timesheet:update';
+  }
+  else if (path.includes('invoice')) permission = 'invoice:manage';
+  else if (path.includes('document')) permission = 'documents:manage';
+  else if (path.includes('onboarding')) permission = 'onboarding:manage';
+  else if (path === '/invite') permission = 'employee:create';
+  else if (path.includes('employee')) permission = req.method === 'GET' ? 'employee:read' : 'employee:update';
+  else if (path.includes('announcement')) permission = 'announcements:manage';
+  else if (path.includes('client') || path.includes('vendor') || path.includes('project')) permission = 'operations:manage';
+  if (!Array.isArray(req.user.permissions) || !req.user.permissions.includes(permission)) return res.status(403).json({ error: `Missing permission: ${permission}` });
+  next();
+});
 
 // POST /api/admin/invite
 router.post('/invite', authenticateToken, async (req, res) => {
@@ -150,10 +180,12 @@ router.get('/alerts', authenticateToken, async (req, res) => {
     const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
     const alerts = [];
 
-    // 1. Pending edit requests
-    const editRequests = await EditRequest.findAll({
-      where: { status: 'pending' },
-    });
+    const isRoot = accountType(req.user) === 'root_admin';
+    const hasPermission = permission => isRoot || (req.user.permissions || []).includes(permission);
+
+    // 1. Pending edit requests are visible only to their authorized approvers.
+    const editRequests = hasPermission('employee_modification:approve')
+      ? await EditRequest.findAll({ where: { status: 'pending' } }) : [];
     if (editRequests.length > 0) {
       const erEmpIds = [...new Set(editRequests.map(er => er.employeeId).filter(Boolean))];
       const erEmployees = await Employee.findAll({
@@ -175,12 +207,12 @@ router.get('/alerts', authenticateToken, async (req, res) => {
       }
     }
 
-    // 2. Pending timesheet entries — one alert per distinct employee
-    const pendingTimesheets = await TimesheetEntry.findAll({
+    // 2. Timesheet alerts go only to Root Admin and Timesheet approvers.
+    const pendingTimesheets = hasPermission('timesheet:approve') ? await TimesheetEntry.findAll({
       where: { status: 'Submitted' },
       attributes: ['employee_id'],
       group: ['employee_id'],
-    });
+    }) : [];
     if (pendingTimesheets.length > 0) {
       const empIds = pendingTimesheets.map(t => t.employee_id);
       const tsEmployees = await Employee.findAll({
@@ -813,6 +845,12 @@ async function getGroupedByType(type) {
         primeVendor: { enabled: false, name: '', startDate: '', endDate: '' },
         client: { enabled: false, name: '', startDate: '', endDate: '' },
         comment: '',
+        billingContactName: '',
+        billingEmail: '',
+        billingAddress: '',
+        billingAddressSameAsVendorAddress: false,
+        paymentTerms: 'Net 30',
+        currency: 'USD',
         createdBy: '',
         updatedBy: '',
         employees: [],
@@ -838,6 +876,13 @@ async function getGroupedByType(type) {
       if (meta.vendor) grouped[key].vendor = meta.vendor;
       if (meta.primeVendor) grouped[key].primeVendor = meta.primeVendor;
       if (meta.client) grouped[key].client = meta.client;
+      grouped[key].billingContactName = meta.billingContactName || '';
+      grouped[key].billingEmail = meta.billingEmail || '';
+      grouped[key].billingAddress = meta.billingAddress || '';
+      grouped[key].billingAddressSameAsVendorAddress = !!meta.billingAddressSameAsVendorAddress;
+      grouped[key].paymentTerms = meta.paymentTerms || 'Net 30';
+      grouped[key].customNetDays = meta.customNetDays || null;
+      grouped[key].currency = meta.currency || 'USD';
     } else if (row.employee_id) {
       // Employee association row: either self-submitted (no meta) or admin-assigned (meta.assignedByAdmin)
       const removable = !!meta?.assignedByAdmin;
@@ -878,19 +923,46 @@ async function getGroupedByType(type) {
   });
 
   const now = new Date();
-  return Object.values(grouped).map(item => {
+  const values = Object.values(grouped).map(item => {
     item.members = item._metaMembers !== null ? item._metaMembers : item._employeeCount;
     delete item._employeeCount;
     delete item._metaMembers;
     if (item.endDate && new Date(item.endDate) < now) item.status = 'Inactive';
     return item;
   });
+  if (type === 'vendor') {
+    const vendorIds = values.map(item => item.id).filter(Boolean);
+    const rates = vendorIds.length ? await VendorEmployeeRate.findAll({ where: { vendor_id: { [Op.in]: vendorIds } } }) : [];
+    const employeeIds = [...new Set(rates.map(rate => rate.employee_id))];
+    const employees = employeeIds.length ? await Employee.findAll({ where: { employee_id: { [Op.in]: employeeIds } }, attributes: ['employee_id', 'firstName', 'lastName', 'name'] }) : [];
+    const names = Object.fromEntries(employees.map(employee => [employee.employee_id, `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || 'Employee']));
+    values.forEach(item => { item.employeeRates = rates.filter(rate => rate.vendor_id === item.id).map(rate => ({ employeeId: rate.employee_id, name: names[rate.employee_id] || 'Employee', rate: Number(rate.rate) })); });
+  }
+  return values;
+}
+
+async function syncVendorEmployeeRates(vendorId, employeeRates = []) {
+  if (!Array.isArray(employeeRates)) throw new Error('employeeRates must be an array');
+  const seen = new Set();
+  const normalized = employeeRates.map(entry => {
+    const employeeId = Number(entry.employeeId);
+    const rate = Number(entry.rate);
+    if (!Number.isInteger(employeeId) || !Number.isFinite(rate) || rate < 0) throw new Error('Each employee rate must use an existing employee and a rate of 0 or greater');
+    if (seen.has(employeeId)) throw new Error('An employee can have only one rate per Vendor');
+    seen.add(employeeId);
+    return { employee_id: employeeId, rate };
+  });
+  const count = normalized.length ? await Employee.count({ where: { employee_id: { [Op.in]: normalized.map(item => item.employee_id) } } }) : 0;
+  if (count !== normalized.length) throw new Error('One or more selected employees do not exist');
+  await VendorEmployeeRate.destroy({ where: { vendor_id: vendorId } });
+  if (normalized.length) await VendorEmployeeRate.bulkCreate(normalized.map(item => ({ ...item, vendor_id: vendorId })));
 }
 
 // Helper: build work_client_details columns + meta from a client/vendor/primeVendor form payload
 function buildWorkClientFields(body, existingMeta = {}) {
-  const { name, status, startDate, endDate, members, contact, address, comment, vendor, primeVendor, client, createdBy, updatedBy } = body;
+  const { name, status, startDate, endDate, members, contact, address, comment, vendor, primeVendor, client, createdBy, updatedBy, billingContactName, billingEmail, billingAddress, billingAddressSameAsVendorAddress, paymentTerms, customNetDays, currency } = body;
   if (!name) throw new Error('name is required');
+  if (paymentTerms === 'Custom' && (!Number.isInteger(Number(customNetDays)) || Number(customNetDays) <= 0)) throw new Error('Custom Net Days must be a positive whole number');
 
   return {
     columns: {
@@ -915,6 +987,13 @@ function buildWorkClientFields(body, existingMeta = {}) {
       vendor: vendor || { enabled: false, name: '', startDate: '', endDate: '' },
       primeVendor: primeVendor || { enabled: false, name: '', startDate: '', endDate: '' },
       client: client || { enabled: false, name: '', startDate: '', endDate: '' },
+      billingContactName: billingContactName || '',
+      billingEmail: billingEmail || '',
+      billingAddressSameAsVendorAddress: !!billingAddressSameAsVendorAddress,
+      billingAddress: billingAddressSameAsVendorAddress ? (address || '') : (billingAddress || ''),
+      paymentTerms: paymentTerms || 'Net 30',
+      customNetDays: paymentTerms === 'Custom' ? Number(customNetDays) : null,
+      currency: currency || 'USD',
     },
   };
 }
@@ -935,6 +1014,13 @@ function formatWorkClientEntry(row) {
     primeVendor: meta.primeVendor || { enabled: false, name: '', startDate: '', endDate: '' },
     client: meta.client || { enabled: false, name: '', startDate: '', endDate: '' },
     comment: meta.comment || '',
+    billingContactName: meta.billingContactName || '',
+    billingEmail: meta.billingEmail || '',
+    billingAddressSameAsVendorAddress: !!meta.billingAddressSameAsVendorAddress,
+    billingAddress: meta.billingAddress || '',
+    paymentTerms: meta.paymentTerms || 'Net 30',
+    customNetDays: meta.customNetDays || null,
+    currency: meta.currency || 'USD',
     createdBy: meta.createdBy || '',
     updatedBy: meta.updatedBy || '',
     employees: [],
@@ -946,7 +1032,10 @@ function formatWorkClientEntry(row) {
 async function createWorkClientEntry(type, body) {
   const { columns, meta } = buildWorkClientFields(body);
   const row = await WorkClientDetail.create({ employee_id: null, type, ...columns, meta });
-  return formatWorkClientEntry(row);
+  if (type === 'vendor' && body.employeeRates) await syncVendorEmployeeRates(row.id, body.employeeRates);
+  const formatted = formatWorkClientEntry(row);
+  if (type === 'vendor') formatted.employeeRates = (body.employeeRates || []).map(item => ({ employeeId: Number(item.employeeId), rate: Number(item.rate) }));
+  return formatted;
 }
 
 // Helper: update an admin-defined entry (only allowed for employee_id IS NULL rows)
@@ -959,6 +1048,7 @@ async function updateWorkClientEntry(type, id, body) {
   }
   const { columns, meta } = buildWorkClientFields(body, row.meta || {});
   await row.update({ ...columns, meta });
+  if (type === 'vendor' && body.employeeRates) await syncVendorEmployeeRates(row.id, body.employeeRates);
   return formatWorkClientEntry(row);
 }
 
@@ -1024,10 +1114,6 @@ async function unassignEmployeeFromEntry(type, id, employeeId) {
 // GET /api/admin/client-vendors?type=client|vendor|primeVendor
 router.get('/client-vendors', authenticateToken, async (req, res) => {
   try {
-    if (!req.user || req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
     const type = String(req.query.type || '').trim();
     const normalizedType = {
       client: 'client',
@@ -1362,6 +1448,28 @@ router.patch('/edit-requests/:id/approve', authenticateToken, async (req, res) =
     res.json({ success: true });
   } catch (err) {
     console.error('[admin/edit-requests/approve] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/vendors/:id/employee-rates
+router.get('/vendors/:id/employee-rates', authenticateToken, async (req, res) => {
+  try {
+    const rates = await VendorEmployeeRate.findAll({ where: { vendor_id: req.params.id }, order: [['employee_id', 'ASC']] });
+    res.json({ employeeRates: rates.map(rate => ({ employeeId: rate.employee_id, rate: Number(rate.rate) })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/admin/edit-requests/:id/reject
+router.patch('/edit-requests/:id/reject', authenticateToken, async (req, res) => {
+  try {
+    const er = await EditRequest.findByPk(req.params.id);
+    if (!er) return res.status(404).json({ error: 'Edit request not found' });
+    if (er.status !== 'pending') return res.status(409).json({ error: 'Request has already been processed' });
+    await er.update({ status: 'denied' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin/edit-requests/reject] error:', err);
     res.status(500).json({ error: err.message });
   }
 });

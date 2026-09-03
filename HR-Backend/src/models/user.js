@@ -22,6 +22,28 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: false
   },
+  accountType: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'employee',
+    field: 'account_type',
+  },
+  adminRole: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'admin_role',
+  },
+  permissions: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: [],
+  },
+  isActive: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+    field: 'is_active',
+  },
   mustChangePassword: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
@@ -41,8 +63,8 @@ const User = sequelize.define('User', {
 });
 
 // User model functions
-const createUser = async ({ email, password, role }) => {
-  const user = await User.create({ email, password, role });
+const createUser = async ({ email, password, role, accountType, adminRole, permissions, isActive }) => {
+  const user = await User.create({ email, password, role, accountType, adminRole, permissions, isActive });
   return user.get({ plain: true });
 };
 

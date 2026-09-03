@@ -2,8 +2,24 @@ const express = require("express");
 const router = express.Router();
 
 const authenticateToken = require("../middleware/auth");
+const { requirePermission } = require('../middleware/authorization');
 const Invoice = require("../models/invoice");
 const Employee = require("../models/employee");
+const invoiceController = require('../controllers/invoiceController');
+
+// Complete invoice workflow. The older root CRUD routes below remain intact
+// for compatibility with existing upload-only integrations.
+router.get('/records/lookups', authenticateToken, requirePermission('invoice:manage'), invoiceController.lookups);
+router.get('/records/approved-hours', authenticateToken, requirePermission('invoice:manage'), invoiceController.approvedHours);
+router.get('/records/vendors', authenticateToken, requirePermission('invoice:manage'), invoiceController.vendorsForEmployee);
+router.get('/records/vendor-rate', authenticateToken, requirePermission('invoice:manage'), invoiceController.vendorRate);
+router.get('/records', authenticateToken, requirePermission('invoice:manage'), invoiceController.list);
+router.post('/records', authenticateToken, requirePermission('invoice:manage'), invoiceController.create);
+router.get('/records/:id', authenticateToken, requirePermission('invoice:manage'), invoiceController.get);
+router.patch('/records/:id', authenticateToken, requirePermission('invoice:manage'), invoiceController.update);
+router.post('/records/:id/generate-pdf', authenticateToken, requirePermission('invoice:manage'), invoiceController.generatePdf);
+router.post('/records/:id/regenerate-pdf', authenticateToken, requirePermission('invoice:manage'), invoiceController.generatePdf);
+router.get('/records/:id/pdf', authenticateToken, requirePermission('invoice:manage'), invoiceController.downloadPdf);
 
 const formatInvoice = (invoice, employee) => ({
     id: invoice.id,
@@ -23,7 +39,7 @@ const formatInvoice = (invoice, employee) => ({
 });
 
 // GET all invoices
-router.get("/", authenticateToken, async (req, res) => {
+router.get("/", authenticateToken, requirePermission('invoice:manage'), async (req, res) => {
     try {
         const invoices = await Invoice.findAll({
             order: [["createdAt", "DESC"]],
@@ -46,7 +62,7 @@ router.get("/", authenticateToken, async (req, res) => {
 });
 
 // CREATE invoice
-router.post("/", authenticateToken, async (req, res) => {
+router.post("/", authenticateToken, requirePermission('invoice:manage'), async (req, res) => {
     try {
         const {
             employee_id,
@@ -88,7 +104,7 @@ router.post("/", authenticateToken, async (req, res) => {
 });
 
 // UPDATE invoice
-router.patch("/:id", authenticateToken, async (req, res) => {
+router.patch("/:id", authenticateToken, requirePermission('invoice:manage'), async (req, res) => {
     try {
         const invoice = await Invoice.findByPk(req.params.id);
         if (!invoice) {
@@ -120,7 +136,7 @@ router.patch("/:id", authenticateToken, async (req, res) => {
     }
 });
 
-router.put("/:id", authenticateToken, async (req, res) => {
+router.put("/:id", authenticateToken, requirePermission('invoice:manage'), async (req, res) => {
     try {
         const invoice = await Invoice.findByPk(req.params.id);
         if (!invoice) {
@@ -152,7 +168,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
     }
 });
 
-router.delete("/:id", authenticateToken, async (req, res) => {
+router.delete("/:id", authenticateToken, requirePermission('invoice:manage'), async (req, res) => {
     try {
         const invoice = await Invoice.findByPk(req.params.id);
         if (!invoice) {

@@ -33,6 +33,8 @@ const sortOptions = [
 
 export default function AdminEmpList() {
   const { user: authUser } = useAuth();
+  const accountType = authUser?.accountType || authUser?.role?.toLowerCase();
+  const canCreateEmployee = accountType === 'root_admin' || authUser?.permissions?.includes('employee:create');
   const [employeeData, setEmployeeData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -385,9 +387,9 @@ export default function AdminEmpList() {
           <AdminTypography.h1>Employees</AdminTypography.h1>
           <AdminTypography.p className="mt-1">The list of all employees you can see here</AdminTypography.p>
         </div>
-        <AdminTypography.button className="flex items-center gap-2 px-5 py-2 bg-white text-[#1a3353] font-semibold rounded-full shadow hover:bg-blue-100 transition" onClick={() => setShowInviteModal(true)}>
+        {canCreateEmployee && <AdminTypography.button className="flex items-center gap-2 px-5 py-2 bg-white text-[#1a3353] font-semibold rounded-full shadow hover:bg-blue-100 transition" onClick={() => setShowInviteModal(true)}>
           <FaUserPlus /> New Employee
-        </AdminTypography.button>
+        </AdminTypography.button>}
         {/* New Employee Modal */}
         {showInviteModal && (
           <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">

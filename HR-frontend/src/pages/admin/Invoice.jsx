@@ -1,3 +1,8 @@
+import InvoiceWorkspace from './InvoiceWorkspaceV2';
+
+export default InvoiceWorkspace;
+
+/*
 import React, { useState, useRef, useEffect } from "react"
 import AdminTypography from "../../components/admin/AdminTypography"
 import { useAdminView } from "../../contexts/AdminViewContext"
@@ -743,3 +748,4 @@ export default function AdminInvoices() {
         )
     }
 }
+*/

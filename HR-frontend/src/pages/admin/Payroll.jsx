@@ -321,7 +321,12 @@ function PayrollModal({ open, onClose, onSave, initialData, isEdit, employeeData
 }
 
 export default function AdminPayroll() {
-  const { normalizedRole } = useAuth();
+  const { isRootAdmin, can } = useAuth();
+  const canViewPayroll = isRootAdmin || can('payroll:view');
+  const canCreatePayroll = isRootAdmin || can('payroll:create');
+  const canUpdatePayroll = isRootAdmin || can('payroll:update');
+  const canDeletePayroll = isRootAdmin || can('payroll:delete');
+  const canOpenPayrollModal = canCreatePayroll || canUpdatePayroll;
   const [payrolls, setPayrolls] = useState([]);
   const [payrollNumber, setPayrollNumber] = useState("");
   const [employeeName, setEmployeeName] = useState("");
@@ -359,7 +364,7 @@ export default function AdminPayroll() {
   }
   const loadEmployees = async () => {
     const token = localStorage.getItem("token");
-    if (!token || normalizedRole !== "admin") {
+    if (!token || !canViewPayroll) {
       setEmployeeData([]);
       return;
     }
@@ -379,7 +384,7 @@ export default function AdminPayroll() {
 
   const loadPayrolls = async () => {
     const token = localStorage.getItem("token");
-    if (!token || normalizedRole !== "admin") {
+    if (!token || !canViewPayroll) {
       setPayrolls([]);
       return;
     }
@@ -398,7 +403,7 @@ export default function AdminPayroll() {
   };
 
   useEffect(() => {
-    if (normalizedRole !== "admin") {
+    if (!canViewPayroll) {
       setEmployeeData([]);
       setPayrolls([]);
       return;
@@ -406,7 +411,7 @@ export default function AdminPayroll() {
 
     loadEmployees();
     loadPayrolls();
-  }, [normalizedRole]);
+  }, [canViewPayroll]);
 
   const filteredPayrolls = payrolls.filter((payroll) => {
     const matchesPayrollNumber =
@@ -634,13 +639,13 @@ export default function AdminPayroll() {
             />
           </div>
 
-          <AdminTypography.button
+          {canCreatePayroll && <AdminTypography.button
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             onClick={handleAdd}
             aria-label="Add payroll"
           >
             + Payroll
-          </AdminTypography.button>
+          </AdminTypography.button>}
         </div>
       </div>
 
@@ -656,15 +661,15 @@ export default function AdminPayroll() {
               <th className="px-4 py-3 text-center text-sm font-semibold">W2 Download</th>
               <th className="px-4 py-3 text-center text-sm font-semibold">Pay Cheque </th>
               <th className="px-4 py-3 text-center text-sm font-semibold">Pay Cheque Download</th>
-              <th className="px-4 py-3 text-center text-sm font-semibold">Edit</th>
-              <th className="px-4 py-3 text-center text-sm font-semibold">Delete</th>
+              {canUpdatePayroll && <th className="px-4 py-3 text-center text-sm font-semibold">Edit</th>}
+              {canDeletePayroll && <th className="px-4 py-3 text-center text-sm font-semibold">Delete</th>}
             </tr>
           </thead>
 
           <tbody>
             {filteredPayrolls.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-8 text-gray-400">
+                <td colSpan={8 + Number(canUpdatePayroll) + Number(canDeletePayroll)} className="text-center py-8 text-gray-400">
                   No payroll records found.
                 </td>
               </tr>
@@ -717,7 +722,7 @@ export default function AdminPayroll() {
                     </AdminTypography.button>
                   </td>
 
-                  <td className="px-4 py-3 text-center">
+                  {canUpdatePayroll && <td className="px-4 py-3 text-center">
                     <AdminTypography.button
                       className="px-3 py-1 bg-yellow-100 text-blue-800 rounded hover:bg-yellow-200 text-xs"
                       onClick={() => handleEdit(payroll)}
@@ -725,9 +730,9 @@ export default function AdminPayroll() {
                     >
                       Edit
                     </AdminTypography.button>
-                  </td>
+                  </td>}
 
-                  <td className="px-4 py-3 text-center">
+                  {canDeletePayroll && <td className="px-4 py-3 text-center">
                     <AdminTypography.button
                       className="px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200 text-xs"
                       onClick={() => handleDelete(payroll.id)}
@@ -735,7 +740,7 @@ export default function AdminPayroll() {
                     >
                       Delete
                     </AdminTypography.button>
-                  </td>
+                  </td>}
                 </tr>
               ))
             )}
@@ -743,14 +748,14 @@ export default function AdminPayroll() {
         </table>
       </div>
 
-      <PayrollModal
+      {canOpenPayrollModal && <PayrollModal
         open={modalOpen}
         onClose={() => { setModalOpen(false); setEditPayroll(null); }}
         onSave={handleSave}
         initialData={editPayroll}
         isEdit={!!editPayroll}
         employeeData={employeeData}
-      />
+      />}
     </div>
   );
 }

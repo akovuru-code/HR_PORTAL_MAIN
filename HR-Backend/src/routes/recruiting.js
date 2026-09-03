@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 
 const authenticateToken = require('../middleware/auth');
+const { requirePermission } = require('../middleware/authorization');
 const Recruiting = require('../models/recruiting');
 
 
 // GET all candidates
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateToken, requirePermission('recruiting:manage'), async (req, res) => {
     try {
 
         const candidates = await Recruiting.findAll({
@@ -26,7 +27,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
 
 // CREATE candidate
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, requirePermission('recruiting:manage'), async (req, res) => {
     try {
 
         const candidate = await Recruiting.create({
@@ -48,7 +49,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
 
 // UPDATE candidate
-router.patch('/:id', authenticateToken, async (req, res) => {
+router.patch('/:id', authenticateToken, requirePermission('recruiting:manage'), async (req, res) => {
     try {
 
         const candidate = await Recruiting.findByPk(req.params.id);
@@ -80,7 +81,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
 
 
 // DELETE candidate
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, requirePermission('recruiting:manage'), async (req, res) => {
     try {
 
         const candidate = await Recruiting.findByPk(req.params.id);

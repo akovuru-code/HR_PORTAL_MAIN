@@ -6,18 +6,18 @@ import { FaBuilding, FaHandshake, FaUsers, FaUserPlus, FaFileAlt, FaBriefcase, F
 import AdminTypography from "../../components/admin/AdminTypography";
 
 const modules = [
-  { label: "Recruiting", icon: <FaPersonBooth />, route: "/admin/recruiting" },
-  { label: "Documents", icon: <FaFileAlt />, route: "/admin/documents" },
-  { label: "Register", icon: <FaUserPlus />, route: "/admin/register" },
-  { label: "Clients", icon: <FaUsers />, route: "/admin/clients" },
-  { label: "Vendors", icon: <FaHandshake />, route: "/admin/vendors" },
-  { label: "Prime Vendors", icon: <FaRegHandshake />, route: "/admin/prime-vendors" },
-  { label: "Projects", icon: <FaBriefcase />, route: "/admin/projects" },
-  { label: "Invoice", icon: <FaFile />, route: "/admin/invoice" },
-  { label: "Payroll", icon: <FaPaypal />, route: "/admin/payroll" },
-  { label: "Support Tickets", icon: <FaLifeRing />, route: "/admin/support-tickets" },
-  { label: "Announcements", icon: <FaBullhorn />, route: "/admin/announcements" },
-  { label: "Calendar", icon: <FaCalendarAlt />, route: "/admin/calendar" },
+  { label: "Recruiting", icon: <FaPersonBooth />, route: "/admin/recruiting", permission: "recruiting:manage" },
+  { label: "Documents", icon: <FaFileAlt />, route: "/admin/documents", permission: "documents:manage" },
+  { label: "Create Employee", icon: <FaUserPlus />, route: "/admin/register", permission: "employee:create" },
+  { label: "Clients", icon: <FaUsers />, route: "/admin/clients", permission: "operations:manage" },
+  { label: "Vendors", icon: <FaHandshake />, route: "/admin/vendors", permission: "operations:manage" },
+  { label: "Prime Vendors", icon: <FaRegHandshake />, route: "/admin/prime-vendors", permission: "operations:manage" },
+  { label: "Projects", icon: <FaBriefcase />, route: "/admin/projects", permission: "operations:manage" },
+  { label: "Invoice", icon: <FaFile />, route: "/admin/invoice", permission: "invoice:manage" },
+  { label: "Payroll", icon: <FaPaypal />, route: "/admin/payroll", permission: "payroll:view" },
+  { label: "Support Tickets", icon: <FaLifeRing />, route: "/admin/support-tickets", permission: "support_tickets:view" },
+  { label: "Announcements", icon: <FaBullhorn />, route: "/admin/announcements", permission: "announcements:manage" },
+  { label: "Calendar", icon: <FaCalendarAlt />, route: "/admin/calendar", permission: "calendar:view" },
   // Hidden for Admin: Requires enhancement to support multiple users before it can be enabled in a future release.
   //{ label: "Assets", icon: <FaLaptop />, route: "/admin/assets" },
   //{ label: "Policies", icon: <FaFile />, route: "/admin/policies" },
@@ -27,7 +27,10 @@ const modules = [
 export default function AdminOptions() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.role && user.role.toLowerCase() === "admin";
+  const accountType = user?.accountType || user?.role?.toLowerCase();
+  const isRootAdmin = accountType === 'root_admin';
+  const isAdmin = isRootAdmin || accountType === "admin";
+  const can = permission => isRootAdmin || !permission || user?.permissions?.includes(permission);
 
   if (!isAdmin) {
     return (
@@ -41,7 +44,7 @@ export default function AdminOptions() {
     <main className="flex-1 p-8 bg-white min-h-screen">
       <AdminTypography.h1 className="mb-8">More Options:</AdminTypography.h1>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {modules.map((mod) => (
+        {[...modules, ...(isRootAdmin ? [{ label: 'Admin Management', icon: <FaUsers />, route: '/admin/admin-management' }] : [])].filter(mod => can(mod.permission)).map((mod) => (
           <div
             key={mod.label}
             className="flex flex-col items-center justify-center bg-gray-100 rounded-xl p-6 shadow-sm hover:bg-gray-200 hover:shadow-md transition cursor-pointer min-h-[120px] text-center outline-none focus:ring-2 focus:ring-blue-400"

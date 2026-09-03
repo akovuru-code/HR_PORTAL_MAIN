@@ -1,10 +1,13 @@
 import { useState, useCallback, useEffect, useContext } from 'react';
 import { getSession, requestEditPermission, getLatestEditRequest, getOnboarding } from '../api/onboarding';
 import { AdminViewContext } from '../contexts/AdminViewContext';
+import { useAuth } from './useAuth';
 
 export function useOnboardingPermissions(pageKey, sectionKey) {
     const adminView = useContext(AdminViewContext);
     const isAdminView = !!(adminView?.targetEmployeeId);
+    const { isRootAdmin, can } = useAuth();
+    const adminCanEditEmployee = isRootAdmin || can('employee:update');
     // Read initial state from localStorage
     const getCanEdit = () => {
         if (typeof window === 'undefined') return false;
@@ -15,8 +18,8 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
         return localStorage.getItem(`submitted_${sectionKey}`) === 'true';
     };
 
-    const [canEdit, setCanEdit] = useState(isAdminView ? true : getCanEdit());
-    const [onboardingSubmitted, setOnboardingSubmitted] = useState(isAdminView ? false : getSubmitted());
+    const [canEdit, setCanEdit] = useState(isAdminView ? adminCanEditEmployee : getCanEdit());
+    const [onboardingSubmitted, setOnboardingSubmitted] = useState(isAdminView ? !adminCanEditEmployee : getSubmitted());
     const [permissionRequested, setPermissionRequested] = useState(false);
     const [permissionGranted, setPermissionGranted] = useState(false);
     const [requestStatus, setRequestStatus] = useState(null); // pending|approved|denied|null
@@ -37,7 +40,7 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
     useEffect(() => {
         let mounted = true;
         async function loadStatus() {
-            if (isAdminView) return; // admin always has full edit access
+            if (isAdminView) return; // admin access is initialized from employee:update
             setLoadingStatus(true);
             try {
                 const session = await getSession();
@@ -85,11 +88,11 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
         }
         loadStatus();
         return () => { mounted = false; };
-    }, [pageKey, sectionKey]);
+    }, [pageKey, sectionKey, isAdminView]);
 
     // Submit handler — only locks this tab, not all tabs
     const handleSubmit = useCallback(() => {
-        if (isAdminView) return; // admin stays editable after submit
+        if (isAdminView) return; // authorized admins stay editable after submit
         if (typeof window !== 'undefined') {
             localStorage.setItem(`submitted_${sectionKey}`, 'true');
             localStorage.removeItem(pageKey);
@@ -143,6 +146,7 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
 
     return {
         canEdit,
+        adminCanEditEmployee,
         onboardingSubmitted,
         handleSubmit,
         requestPermission,

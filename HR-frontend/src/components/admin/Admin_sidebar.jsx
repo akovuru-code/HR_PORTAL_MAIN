@@ -1,12 +1,12 @@
 import React from "react";
 import { FaChartBar, FaUsers, FaClock, FaFileAlt, FaPlus, FaQuestionCircle, FaCog } from "react-icons/fa";
 import { useLocation, Link } from "react-router-dom";
-import companyLogo from "../../assets/Company.png"
+import { useAuth } from '../../hooks/useAuth';
 
 const menuItems = [
     { label: "Dashboard", icon: <FaChartBar />, href: "/admin/dashboard" },
-    { label: "Employees", icon: <FaUsers />, href: "/admin/employees" },
-    { label: "Timesheet", icon: <FaClock />, href: "/admin/timesheet" },
+    { label: "Employees", icon: <FaUsers />, href: "/admin/employees", permission: 'employee:read' },
+    { label: "Timesheet", icon: <FaClock />, href: "/admin/timesheet", permission: 'timesheet:view' },
     /* Hidden for Admin: Currently supports only a single user's details. 
     Requires enhancement to support multiple users before it can be enabled in a future release. */
     // { label: "Onboarding", icon: <FaFileAlt />, href: "/admin/onboarding" },
@@ -18,9 +18,10 @@ const bottomItems = [
     { label: "Settings", icon: <FaCog />, href: "/admin/settings" },
 ];
 
-export default function AdminSidebar({ active }) {
+export default function AdminSidebar() {
     // If using react-router, use useLocation for active route
-    const location = useLocation ? useLocation() : { pathname: active || "" };
+    const location = useLocation();
+    const { isRootAdmin, permissions } = useAuth();
     return (
         <aside
             className="bg-[#0b1229] text-white w-56 min-h-screen flex flex-col py-6 px-4 font-sans"
@@ -31,7 +32,7 @@ export default function AdminSidebar({ active }) {
                 Admin Panel
             </div>
             <nav className="flex-1" aria-label="Main menu">
-                {menuItems.map((item) => {
+                {menuItems.filter(item => isRootAdmin || !item.permission || permissions.includes(item.permission)).map((item) => {
                     const isActive = location.pathname.startsWith(item.href);
                     return (
                         <Link

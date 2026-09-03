@@ -50,7 +50,8 @@ export default function DashboardLayout({ children }) {
   const { user, logout } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
-  const isAdmin = user?.role && user.role.toLowerCase() === "admin";
+  const accountType = user?.accountType || user?.role?.toLowerCase();
+  const isAdmin = accountType === 'root_admin' || accountType === "admin";
   const isEmployee = user?.role && user.role.toLowerCase() === "employee";
   const [search, setSearch] = useState("");
 

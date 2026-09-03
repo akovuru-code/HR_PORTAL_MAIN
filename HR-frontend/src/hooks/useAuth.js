@@ -34,6 +34,10 @@ export function useAuth() {
 
   // Helper: normalized role
   const normalizedRole = user?.role ? user.role.toLowerCase() : undefined;
+  const accountType = user?.accountType || (normalizedRole === 'admin' ? 'admin' : normalizedRole);
+  const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  const isRootAdmin = accountType === 'root_admin';
+  const can = (permission) => isRootAdmin || permissions.includes(permission);
 
   const clearOnboardingKeys = () => {
     Object.keys(localStorage)
@@ -50,5 +54,5 @@ export function useAuth() {
     clearOnboardingKeys();
     setUser(null);
   };
-  return { user, login, logout, normalizedRole };
+  return { user, login, logout, normalizedRole, accountType, permissions, isRootAdmin, can };
 }

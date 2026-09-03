@@ -24,34 +24,37 @@ import AdminRecruiting from "./Recruiting";
 import AdminDepartment from "./Department";
 import AdminSupportTickets from "./SupportTickets";
 import AdminRegister from "./Register";
+import AdminManagement from "./AdminManagement";
+import ProtectedRoute from "../../components/ProtectedRoute";
 
 
 
 export default (
   <>
-    <Route path="dashboard" element={<AdminDashboard />} />
+    <Route path="dashboard" element={<ProtectedRoute permission="dashboard:view"><AdminDashboard /></ProtectedRoute>} />
     <Route path="settings" element={<AdminSettings />} />
     <Route path="help" element={<AdminHelp />} />
-    <Route path="employees" element={<AdminEmpList />} />
-    <Route path="employees/:id" element={<EmployeeDetails />} />
-    <Route path="timesheet" element={<AdminTimesheet />} />
+    <Route path="employees" element={<ProtectedRoute permission="employee:read"><AdminEmpList /></ProtectedRoute>} />
+    <Route path="employees/:id" element={<ProtectedRoute permission="employee:read"><EmployeeDetails /></ProtectedRoute>} />
+    <Route path="timesheet" element={<ProtectedRoute permission="timesheet:view"><AdminTimesheet /></ProtectedRoute>} />
     <Route path="onboarding" element={<EmpOnboard />} />
-    <Route path="payroll" element={<AdminPayroll />} />
+    <Route path="payroll" element={<ProtectedRoute permission="payroll:view"><AdminPayroll /></ProtectedRoute>} />
     <Route path="options" element={<AdminOptions />} />
-    <Route path="invoice" element={<AdminInvoice />} />
-    <Route path="projects" element={<AdminProjects />} />
+    <Route path="invoice" element={<ProtectedRoute permission="invoice:manage"><AdminInvoice /></ProtectedRoute>} />
+    <Route path="projects" element={<ProtectedRoute permission="operations:manage"><AdminProjects /></ProtectedRoute>} />
     <Route path="profile" element={<AdminProfile />} />
-    <Route path="clients" element={<AdminClients />} />
-    <Route path="vendors" element={<AdminVendors />} />
-    <Route path="prime-vendors" element={<AdminPrimeVendors />} />
-    <Route path="calendar" element={<AdminCalendar />} />
+    <Route path="clients" element={<ProtectedRoute permission="operations:manage"><AdminClients /></ProtectedRoute>} />
+    <Route path="vendors" element={<ProtectedRoute permission="operations:manage"><AdminVendors /></ProtectedRoute>} />
+    <Route path="prime-vendors" element={<ProtectedRoute permission="operations:manage"><AdminPrimeVendors /></ProtectedRoute>} />
+    <Route path="calendar" element={<ProtectedRoute permission="calendar:view"><AdminCalendar /></ProtectedRoute>} />
     <Route path="company-info" element={<Company />} />
-    <Route path="announcements" element={<AdminAnnouncements />} />
-    <Route path="documents" element={<AdminDocuments />} />
-    <Route path="recruiting" element={<AdminRecruiting />} />
+    <Route path="announcements" element={<ProtectedRoute permission="announcements:manage"><AdminAnnouncements /></ProtectedRoute>} />
+    <Route path="documents" element={<ProtectedRoute permission="documents:manage"><AdminDocuments /></ProtectedRoute>} />
+    <Route path="recruiting" element={<ProtectedRoute permission="recruiting:manage"><AdminRecruiting /></ProtectedRoute>} />
     <Route path="department" element={<AdminDepartment />} />
-    <Route path="support-tickets" element={<AdminSupportTickets />} />
-    <Route path="register" element={<AdminRegister />} />
+    <Route path="support-tickets" element={<ProtectedRoute permission="support_tickets:view"><AdminSupportTickets /></ProtectedRoute>} />
+    <Route path="register" element={<ProtectedRoute permission="employee:create"><AdminRegister /></ProtectedRoute>} />
+    <Route path="admin-management" element={<ProtectedRoute allowedAccountTypes={["root_admin"]}><AdminManagement /></ProtectedRoute>} />
 
 
 

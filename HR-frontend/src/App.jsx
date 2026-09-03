@@ -31,6 +31,7 @@ import EmpPersonalDetails from './pages/onboarding/EmpPersonalDetails';
 import DashboardLayout from "./Layouts/DashboardLayout";
 import Company from "./pages/Company";
 import CompanyLayout from "./components/companyLayout";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
   return (
@@ -44,7 +45,7 @@ function App() {
 
 
         {/* Protected Layout */}
-        <Route path="/admin" element={<Layout />}> {adminRoutes}</Route>
+        <Route path="/admin" element={<ProtectedRoute allowedAccountTypes={["root_admin", "admin"]}><Layout /></ProtectedRoute>}> {adminRoutes}</Route>
         <Route path="/employee" element={<Layout />}>{employeeRoutes}</Route>
         <Route path="/onboarding" element={<Layout />}>{onboardingRoutes}</Route>
         {/* Fallback: redirect /admin/onboarding and /employee/onboarding to shared onboarding */}

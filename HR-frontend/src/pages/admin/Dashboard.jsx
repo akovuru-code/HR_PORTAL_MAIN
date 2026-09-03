@@ -3,6 +3,7 @@ import StatusCard from "../../components/admin/StatusCard";
 import GraphPanel from "../../components/admin/GraphPanel";
 import AdminTypography from "../../components/admin/AdminTypography";
 import AnnouncementsPanel from "../../components/common/AnnouncementsPanel";
+import { useAuth } from "../../hooks/useAuth";
 
 // === API Configuration ===
 //const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY; // Skbabers@gmail.com
@@ -41,7 +42,7 @@ function GreetingHeader({ name }) {
 }
 
 // === AlertsPanel (inlined) ===
-function AlertsPanel({ alerts, onApprove }) {
+function AlertsPanel({ alerts, onApprove, onReject }) {
   return (
     <div className="bg-white border rounded-xl p-4 shadow-sm min-h-[220px] max-h-80 overflow-y-auto">
       <div className="text-xl font-semibold mb-2">Alerts:</div>
@@ -51,14 +52,25 @@ function AlertsPanel({ alerts, onApprove }) {
             <li key={idx} className="flex items-center justify-between gap-2">
               <span>{typeof alert === 'string' ? alert : alert.message}</span>
               {alert.canApprove && onApprove && (
-                <AdminTypography.button
-                  variant="primary"
-                  className="py-0.5 shrink-0"
-                  style={{ minWidth: 60, fontSize: '0.72rem' }}
-                  onClick={() => onApprove(alert.id)}
-                >
-                  Approve
-                </AdminTypography.button>
+                <span className="flex gap-1 shrink-0">
+                  <AdminTypography.button
+                    variant="primary"
+                    className="py-0.5"
+                    style={{ minWidth: 60, fontSize: '0.72rem' }}
+                    onClick={() => onApprove(alert.id)}
+                  >
+                    Approve
+                  </AdminTypography.button>
+                  {onReject && (
+                    <AdminTypography.button
+                      className="py-0.5 bg-red-100 text-red-700 hover:bg-red-200"
+                      style={{ minWidth: 52, fontSize: '0.72rem' }}
+                      onClick={() => onReject(alert.id)}
+                    >
+                      Reject
+                    </AdminTypography.button>
+                  )}
+                </span>
               )}
             </li>
           ))
@@ -105,14 +117,18 @@ function ToDoStickyNotes() {
       const n = data.note;
       setNotes(prev => [...prev, { id: n.id, text: n.text, time: new Date(n.createdAt).toLocaleString() }]);
       setInput("");
-    } catch { }
+    } catch {
+      // Ignore note API errors; the dashboard remains usable.
+    }
   };
 
   const deleteNote = async (id) => {
     try {
       await fetch(`/api/admin/notes/${id}`, { method: "DELETE", headers: authHeaders() });
       setNotes(prev => prev.filter(n => n.id !== id));
-    } catch { }
+    } catch {
+      // Ignore note API errors; the dashboard remains usable.
+    }
   };
 
   // Handle textarea keydown: Shift+Enter for newline, Enter for submit
@@ -256,6 +272,8 @@ function ToDoStickyNotes() {
 
 // === Main Dashboard ===
 export default function Dashboard() {
+  const { isRootAdmin, can } = useAuth();
+  const canApproveEditRequests = isRootAdmin || can('employee_modification:approve');
   const [session, setSession] = useState({ name: "" });
   const [alerts, setAlerts] = useState([]);
   const [status, setStatus] = useState([]);
@@ -290,6 +308,21 @@ export default function Dashboard() {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`/api/admin/edit-requests/${id}/approve`, {
+        method: "PATCH",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        setAlerts(prev => prev.filter(a => a.id !== id));
+      }
+    } catch {
+      // silent fail
+    }
+  };
+
+  const rejectEditRequest = async (id) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`/api/admin/edit-requests/${id}/reject`, {
         method: "PATCH",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -508,7 +541,11 @@ export default function Dashboard() {
 
         {/* Alerts Panel && To-Do Notes */}
         <div className="w-96">
-          <AlertsPanel alerts={alerts} onApprove={approveEditRequest} />
+          <AlertsPanel
+            alerts={alerts}
+            onApprove={canApproveEditRequests ? approveEditRequest : undefined}
+            onReject={canApproveEditRequests ? rejectEditRequest : undefined}
+          />
           <ToDoStickyNotes />
         </div>
 

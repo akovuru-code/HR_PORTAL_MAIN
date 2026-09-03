@@ -45,7 +45,7 @@ export default function Login() {
           setForgotEmail(res.user.email || email);
           return;
         }
-        if (userRole === "admin") {
+        if (res.user.accountType === "root_admin" || res.user.accountType === "admin" || userRole === "admin") {
           navigate("/admin/dashboard");
         } else if (userRole === "emp" || userRole === "employee") {
           navigate("/employee/dashboard");
@@ -221,7 +221,6 @@ export default function Login() {
               {[
                 { key: "remember", label: "I remember my password" },
                 { key: "request", label: "Request temporary password from Admin" },
-                { key: "email", label: "Email me a temporary password" },
               ].map((item) => (
                 <button
                   key={item.key}

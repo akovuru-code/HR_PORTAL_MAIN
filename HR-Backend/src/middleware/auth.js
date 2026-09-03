@@ -12,6 +12,23 @@ async function authenticateToken(req, res, next) {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
   req.user = user;
+  // Authorization is resolved from the database on every protected request so
+  // disabled accounts and role changes take effect before JWT expiry.
+  try {
+    const userModel = require('../models/user');
+    const dbUser = await userModel.getUserById(user.id);
+    if (!dbUser || dbUser.isActive === false) return res.status(403).json({ error: 'Account is inactive or unavailable' });
+    req.user = {
+      ...user,
+      email: dbUser.email,
+      role: dbUser.role,
+      accountType: dbUser.accountType || (String(dbUser.role).toLowerCase() === 'admin' ? 'admin' : 'employee'),
+      adminRole: dbUser.adminRole || null,
+      permissions: Array.isArray(dbUser.permissions) ? dbUser.permissions : [],
+    };
+  } catch (_) {
+    return res.status(403).json({ error: 'Unable to verify account authorization' });
+  }
   // Resolve employeeId from DB if not present in token (handles old tokens)
   if (!req.user.employeeId) {
     try {

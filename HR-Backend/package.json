@@ -18,6 +18,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "aws-sdk": "^2.1482.0",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
@@ -30,7 +31,9 @@
     "node-cache": "^5.1.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.10",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.20.2",
     "pg": "^8.16.3",
     "pg-hstore": "^2.3.4",
     "sequelize": "^6.37.7",

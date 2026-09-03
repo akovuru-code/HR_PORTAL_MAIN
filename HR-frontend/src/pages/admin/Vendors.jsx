@@ -14,6 +14,10 @@ const authHeaders = () => {
 
 function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
     const [dropdownItems, setDropdownItems] = useState({ client: [], primeVendor: [] });
+    const [rateEmployees, setRateEmployees] = useState([]);
+    const [employeeRates, setEmployeeRates] = useState([]);
+    const [rateEmployeeId, setRateEmployeeId] = useState('');
+    const [rateValue, setRateValue] = useState('');
     const [form, setForm] = useState(
         initialData || {
             name: "",
@@ -22,6 +26,13 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
             endDate: "",
             contact: "",
             address: "",
+            billingContactName: "",
+            billingEmail: "",
+            billingAddress: "",
+            billingAddressSameAsVendorAddress: false,
+            paymentTerms: "Net 30",
+            customNetDays: "",
+            currency: "USD",
             comment: "",
             client: { enabled: false, name: "", startDate: "", endDate: "" },
             primeVendor: { enabled: false, name: "", startDate: "", endDate: "" },
@@ -38,11 +49,27 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                 endDate: "",
                 contact: "",
                 address: "",
+                billingContactName: "",
+                billingEmail: "",
+                billingAddress: "",
+                billingAddressSameAsVendorAddress: false,
+                paymentTerms: "Net 30",
+                customNetDays: "",
+                currency: "USD",
                 comment: "",
                 client: { enabled: false, name: "", startDate: "", endDate: "" },
                 primeVendor: { enabled: false, name: "", startDate: "", endDate: "" },
             }
         );
+    }, [initialData, open]);
+
+    useEffect(() => {
+        if (!open) return;
+        setEmployeeRates(initialData?.employeeRates || []);
+        fetch('/api/admin/employees', { headers: authHeaders() })
+            .then(response => response.json())
+            .then(data => setRateEmployees((data.employees || []).filter(employee => !employee.terminateDate)))
+            .catch(() => setRateEmployees([]));
     }, [initialData, open]);
 
     useEffect(() => {
@@ -124,6 +151,14 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
         } else if (name.startsWith("primeVendor.")) {
             const field = name.split(".")[1];
             setForm((f) => ({ ...f, primeVendor: { ...f.primeVendor, [field]: value } }));
+        } else if (name === 'billingAddressSameAsVendorAddress') {
+            setForm((f) => ({
+                ...f,
+                billingAddressSameAsVendorAddress: checked,
+                billingAddress: checked ? f.address : f.billingAddress,
+            }));
+        } else if (name === 'address') {
+            setForm((f) => ({ ...f, address: value, billingAddress: f.billingAddressSameAsVendorAddress ? value : f.billingAddress }));
         } else {
             setForm((f) => ({ ...f, [name]: value }));
         }
@@ -137,6 +172,14 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
             alert("Please enter a valid contact number with country code, followed by exactly 10 digits (e.g. +919876543210).");
             return;
         }
+        if (form.billingEmail && !/^\S+@\S+\.\S+$/.test(form.billingEmail)) {
+            alert("Please enter a valid billing email address.");
+            return;
+        }
+        if (form.paymentTerms === 'Custom' && (!/^\d+$/.test(String(form.customNetDays || '')) || Number(form.customNetDays) <= 0)) {
+            alert('Custom Net Days must be a positive whole number.');
+            return;
+        }
         let status = form.status;
         if (form.endDate) {
             const today = new Date();
@@ -147,7 +190,7 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
         const userMeta = isEdit
             ? { updatedBy: user.fullName }
             : { createdBy: user.fullName };
-        onSave({ ...form, status, ...userMeta });
+        onSave({ ...form, employeeRates, status, ...userMeta });
     }
 
     if (!open) return null;
@@ -214,34 +257,6 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                                 max="9999-12-31"
                             />
                         </div>
-                        <div>
-                            <AdminTypography.label htmlFor="members">No. of Members</AdminTypography.label>
-                            <input
-                                id="members"
-                                name="members"
-                                type="number"
-                                min="1"
-                                className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
-                                value={form.members}
-                                onChange={handleChange}
-                                required
-                            />
-                        </div>
-                        <div>
-                            <AdminTypography.label htmlFor="contact">Contact Number</AdminTypography.label>
-                            <input
-                                id="contact"
-                                name="contact"
-                                type="text"
-                                inputMode="tel"
-                                maxLength={15}
-                                placeholder="Contact number with country code"
-                                title="Enter country code followed by a 10-digit number, e.g. +919876543210"
-                                className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
-                                value={form.contact}
-                                onChange={handleChange}
-                            />
-                        </div>
                         <div className="md:col-span-2">
                             <AdminTypography.label htmlFor="address">Address</AdminTypography.label>
                             <textarea
@@ -252,6 +267,54 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                                 onChange={handleChange}
                             />
                         </div>
+                    </div>
+                    <div className="border-t pt-5">
+                        <AdminTypography.h3 className="text-gray-900 mb-4">Billing Information</AdminTypography.h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <AdminTypography.label htmlFor="billingContactName">Billing Contact Name</AdminTypography.label>
+                                <input id="billingContactName" name="billingContactName" type="text" className="border border-gray-300 rounded px-3 py-2 w-full mt-1" value={form.billingContactName || ""} onChange={handleChange} />
+                            </div>
+                            <div>
+                                <AdminTypography.label htmlFor="billingEmail">Billing Email</AdminTypography.label>
+                                <input id="billingEmail" name="billingEmail" type="email" className="border border-gray-300 rounded px-3 py-2 w-full mt-1" value={form.billingEmail || ""} onChange={handleChange} />
+                            </div>
+                            <div>
+                                <AdminTypography.label htmlFor="contact">Contact Number</AdminTypography.label>
+                                <input id="contact" name="contact" type="text" inputMode="tel" maxLength={15} placeholder="Contact number with country code" className="border border-gray-300 rounded px-3 py-2 w-full mt-1" value={form.contact || ""} onChange={handleChange} />
+                            </div>
+                            <div>
+                                <AdminTypography.label htmlFor="paymentTerms">Payment Terms</AdminTypography.label>
+                                <select id="paymentTerms" name="paymentTerms" className="border border-gray-300 rounded px-3 py-2 w-full mt-1" value={form.paymentTerms || "Net 30"} onChange={handleChange}>
+                                    {['Net 15', 'Net 30', 'Net 45', 'Net 60', 'Custom'].map(term => <option key={term} value={term}>{term}</option>)}
+                                </select>
+                            </div>
+                            {form.paymentTerms === 'Custom' && <div>
+                                <AdminTypography.label htmlFor="customNetDays">Custom Net Days</AdminTypography.label>
+                                <input id="customNetDays" name="customNetDays" type="number" min="1" step="1" className="border border-gray-300 rounded px-3 py-2 w-full mt-1" value={form.customNetDays || ""} onChange={handleChange} />
+                            </div>}
+                            <div>
+                                <AdminTypography.label htmlFor="currency">Currency</AdminTypography.label>
+                                <select id="currency" name="currency" className="border border-gray-300 rounded px-3 py-2 w-full mt-1" value={form.currency || "USD"} onChange={handleChange}>
+                                    <option value="USD">USD — US Dollar</option><option value="INR">INR — Indian Rupee</option><option value="CAD">CAD — Canadian Dollar</option>
+                                </select>
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+                                    <input type="checkbox" name="billingAddressSameAsVendorAddress" checked={!!form.billingAddressSameAsVendorAddress} onChange={handleChange} />
+                                    Billing address is the same as Vendor address
+                                </label>
+                                <AdminTypography.label htmlFor="billingAddress">Billing Address</AdminTypography.label>
+                                <textarea id="billingAddress" name="billingAddress" className="border border-gray-300 rounded px-3 py-2 w-full mt-1" value={form.billingAddress || ""} onChange={handleChange} disabled={!!form.billingAddressSameAsVendorAddress} />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="border-t pt-5">
+                        <AdminTypography.h3 className="text-gray-900 mb-4">Employees / Rates</AdminTypography.h3>
+                        <div className="space-y-2 mb-3">
+                            {employeeRates.map((entry, index) => <div key={entry.employeeId} className="grid grid-cols-[1fr_140px_auto] gap-2 items-center"><span className="border border-gray-300 rounded px-3 py-2">{entry.name || rateEmployees.find(employee => String(employee.id) === String(entry.employeeId))?.name || 'Employee'}</span><input type="number" min="0" step="0.01" className="border border-gray-300 rounded px-3 py-2" value={entry.rate} onChange={event => setEmployeeRates(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, rate: event.target.value } : item))} /><button type="button" className="text-red-600" onClick={() => setEmployeeRates(current => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></div>)}
+                        </div>
+                        <div className="grid grid-cols-[1fr_140px_auto] gap-2 items-end"><select className="border border-gray-300 rounded px-3 py-2" value={rateEmployeeId} onChange={event => setRateEmployeeId(event.target.value)}><option value="">Select Employee</option>{rateEmployees.filter(employee => !employeeRates.some(rate => String(rate.employeeId) === String(employee.id))).map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select><input type="number" min="0" step="0.01" placeholder="Rate" className="border border-gray-300 rounded px-3 py-2" value={rateValue} onChange={event => setRateValue(event.target.value)} /><AdminTypography.button type="button" className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => { const employee = rateEmployees.find(item => String(item.id) === String(rateEmployeeId)); if (!employee || rateValue === '' || Number(rateValue) < 0) return alert('Select an employee and enter a valid rate.'); setEmployeeRates(current => [...current, { employeeId: employee.id, name: employee.name, rate: rateValue }]); setRateEmployeeId(''); setRateValue(''); }}>Add Employee</AdminTypography.button></div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
@@ -790,10 +853,6 @@ export default function AdminVendors() {
                                     <AdminTypography.p className="text-gray-900">{vendor.endDate || '-'}</AdminTypography.p>
                                 </div>
                                 <div>
-                                    <AdminTypography.label>No. of Members</AdminTypography.label>
-                                    <AdminTypography.p className="text-gray-900">{vendor.members}</AdminTypography.p>
-                                </div>
-                                <div>
                                     <AdminTypography.label>Comment</AdminTypography.label>
                                     <AdminTypography.p className="text-gray-900">{vendor.comment || '-'}</AdminTypography.p>
                                 </div>
@@ -803,10 +862,6 @@ export default function AdminVendors() {
                         <section>
                             <AdminTypography.h3 className="mb-2 text-blue-700">Contact Information</AdminTypography.h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <AdminTypography.label>Contact Number</AdminTypography.label>
-                                    <AdminTypography.p className="text-gray-900">{vendor.contact}</AdminTypography.p>
-                                </div>
                                 <div>
                                     <AdminTypography.label>Address</AdminTypography.label>
                                     <AdminTypography.p className="text-gray-900">{vendor.address}</AdminTypography.p>

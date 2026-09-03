@@ -8,6 +8,14 @@ const EditRequest = require('../models/editRequest');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
 
+const presentUser = (user, extras = {}) => ({
+  id: user.id, email: user.email, role: user.role,
+  accountType: user.accountType || (String(user.role).toLowerCase() === 'admin' ? 'admin' : 'employee'),
+  adminRole: user.adminRole || null,
+  permissions: Array.isArray(user.permissions) ? user.permissions : [],
+  ...extras,
+});
+
 const getTransporter = () => nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -30,14 +38,10 @@ const sendPasswordEmail = async ({ to, tempPassword }) => {
 
 // Admin Login
 exports.login = async (req, res) => {
-  const { email, password, role } = req.body;
+  const { email, password } = req.body;
   try {
     const user = await userModel.getUserByEmail(email);
-    const reqRole = (role || "").toLowerCase().trim();
-    const userRole = (user?.role || "").toLowerCase().trim();
-    if (!user || userRole !== reqRole) {
-      return res.status(401).json({ error: 'Invalid credentials or role' });
-    }
+    if (!user || user.isActive === false) return res.status(401).json({ error: 'Invalid credentials' });
     const valid = await bcrypt.compare(password, user.password);
     const expiredTemporaryPassword = !!user.mustChangePassword && !!user.temporaryPasswordExpiresAt && new Date(user.temporaryPasswordExpiresAt) < new Date();
     if (!valid) {
@@ -46,7 +50,7 @@ exports.login = async (req, res) => {
     if (expiredTemporaryPassword) {
       return res.status(401).json({ error: 'Temporary password has expired' });
     }
-    const normalizedRole = userRole;
+    const accountType = user.accountType || (String(user.role).toLowerCase() === 'admin' ? 'admin' : 'employee');
     let name = null;
     let employeeId = null;
     try {
@@ -57,10 +61,10 @@ exports.login = async (req, res) => {
         employeeId = emp.employee_id;
       }
     } catch (_) { /* employee lookup is best-effort */ }
-    const token = jwt.sign({ id: user.id, role: normalizedRole, employeeId }, JWT_SECRET, { expiresIn: '1d' });
+    const token = jwt.sign({ id: user.id, employeeId }, JWT_SECRET, { expiresIn: '1d' });
     res.json({
       token,
-      user: { id: user.id, email: user.email, role: normalizedRole, name, employeeId },
+      user: presentUser(user, { name, employeeId, accountType }),
       mustChangePassword: !!user.mustChangePassword,
     });
   } catch (err) {
@@ -68,18 +72,18 @@ exports.login = async (req, res) => {
   }
 };
 
-// Admin Registration
+// Public registration must never create privileged accounts. Employee creation
+// is performed through authorized Admin flows.
 exports.register = async (req, res) => {
-  const { email, password, role, fillingCompany, name } = req.body;
-  let userRole = (role || '').toLowerCase().trim();
-  userRole = (userRole === 'admin' || userRole === 'employee') ? userRole : 'employee';
+  const { email, password, fillingCompany, name } = req.body;
+  const userRole = 'employee';
   try {
     const existing = await userModel.getUserByEmail(email);
     if (existing) {
       return res.status(400).json({ error: 'Email already exists' });
     }
     const hash = await bcrypt.hash(password, 10);
-    const user = await userModel.createUser({ email, password: hash, role: userRole });
+    const user = await userModel.createUser({ email, password: hash, role: userRole, accountType: 'employee', permissions: [], isActive: true });
     if (userRole === "employee") {
       const [employee] = await Employee.findOrCreate({
         where: { email },
@@ -100,7 +104,7 @@ exports.register = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
-      user: { id: user.id, email: user.email, role: user.role }
+      user: presentUser(user)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -139,7 +143,7 @@ exports.getMe = async (req, res) => {
       }
     } catch (_) { /* best-effort */ }
     console.log(`[getMe] returning profile for user=${user.email}, employeeId=${employeeId}, fields=${Object.keys(profileFields).join(', ')}`);
-    res.json({ id: user.id, email: user.email, role: user.role, name, employeeId, ...profileFields });
+    res.json({ ...presentUser(user), name, employeeId, ...profileFields });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -181,7 +185,7 @@ exports.updateProfile = async (req, res) => {
     res.json({
       success: true,
       user: {
-        id: user.id, email: user.email, role: user.role, name, employeeId: emp.employee_id,
+        ...presentUser(user), name, employeeId: emp.employee_id,
         firstName: emp.firstName, lastName: emp.lastName, phone: emp.phone, phoneCountry: emp.phoneCountry,
         aboutMe: emp.aboutMe, jobRole: emp.jobRole, jobDescription: emp.jobDescription,
         profileStatus: emp.profileStatus, statusDetails: emp.statusDetails,

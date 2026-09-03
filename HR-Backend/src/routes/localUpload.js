@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const authenticateToken = require('../middleware/auth');
+const { requireEmployeeSelfOrAnyPermission } = require('../middleware/authorization');
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 
@@ -52,7 +53,7 @@ router.use(authenticateToken);
 // Upload a file for an employee
 // POST /api/local-upload/:employeeId
 // Body (multipart): file, category (e.g. passport, visa, dl, marriage_cert, etc.)
-router.post('/:employeeId', upload.single('file'), (req, res) => {
+router.post('/:employeeId', requireEmployeeSelfOrAnyPermission(['employee:update', 'payroll:upload']), upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const filePath = `/api/local-upload/file/${req.params.employeeId}/${req.file.filename}`;
     res.json({

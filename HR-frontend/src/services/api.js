@@ -23,11 +23,7 @@ export const login = async (email, password, role) => {
 };
 
 export const register = async (name, email, password, role, fillingCompany) => {
-  const res = await fetch(`${API_URL}/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, email, password, role, fillingCompany }),
-  });
+  const res = await fetch(`${API_URL}/auth/register`, getConfig("POST", { name, email, password, role, fillingCompany }));
   return res.json();
 };
 

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useAuth } from "../../hooks/useAuth";
 
 // ── Constants (exact match with employee Timesheet.jsx) ───────────────────
 const ACCENT_COLOR_BG = "bg-blue-200";
@@ -174,6 +175,9 @@ function MonthView({ currentWeekStart, monthlyEntries, handleDayClick }) {
 
 // ── Reusable editable entry cell ─────────────────────────────────────────
 function EditableEntryCell({ entry, onAction }) {
+  const { isRootAdmin, can } = useAuth();
+  const canUpdate = isRootAdmin || can('timesheet:update');
+  const canApprove = isRootAdmin || can('timesheet:approve');
   const [editing, setEditing] = useState(false);
   const [hours, setHours] = useState(entry.hours);
 
@@ -191,13 +195,17 @@ function EditableEntryCell({ entry, onAction }) {
           <button onClick={() => { setEditing(false); setHours(entry.hours); }} className="text-gray-400 text-xs hover:text-gray-600">✕</button>
         </div>
       ) : (
-        <span className="font-semibold text-gray-900 cursor-pointer hover:text-blue-600 hover:underline" title="Click to edit" onClick={() => setEditing(true)}>
+        <span
+          className={`font-semibold text-gray-900 ${canUpdate ? 'cursor-pointer hover:text-blue-600 hover:underline' : ''}`}
+          title={canUpdate ? 'Click to edit' : undefined}
+          onClick={canUpdate ? () => setEditing(true) : undefined}
+        >
           {entry.hours.toFixed(2)}
         </span>
       )}
       {entry.status === 'Approved' && <span className="text-xs text-green-600 font-semibold">✓ Approved</span>}
       {entry.status === 'Rejected' && <span className="text-xs text-red-600 font-semibold">✕ Rejected</span>}
-      {(entry.status === 'Submitted' || entry.status === 'Pending') && (
+      {canApprove && (entry.status === 'Submitted' || entry.status === 'Pending') && (
         <div className="flex gap-1">
           <button onClick={() => onAction(entry.id,'Approved')} className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200 font-semibold">✓</button>
           <button onClick={() => onAction(entry.id,'Rejected')} className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200 font-semibold">✕</button>
@@ -272,6 +280,8 @@ function WeekGrid({ weekDays, entries, onAction }) {
 
 // ── Day detail view ────────────────────────────────────────────────────────
 function DayEntryCard({ e, onAction }) {
+  const { isRootAdmin, can } = useAuth();
+  const canUpdate = isRootAdmin || can('timesheet:update');
   const [comment, setComment] = useState(e.adminComment || '');
   const [saving, setSaving] = useState(false);
 
@@ -293,26 +303,27 @@ function DayEntryCard({ e, onAction }) {
           <EditableEntryCell entry={e} onAction={onAction} />
         </div>
       </div>
-      {/* Per-entry comment */}
-      <div className="border-t pt-3">
-        <label className="block text-xs font-semibold text-gray-500 mb-1">Admin Note (visible to employee)</label>
-        <div className="flex gap-2">
-          <textarea
-            className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-300"
-            rows={2}
-            value={comment}
-            onChange={e => setComment(e.target.value)}
-            placeholder="Leave a note for this entry..."
-          />
-          <button
-            onClick={saveComment}
-            disabled={saving}
-            className={`self-end px-3 py-1.5 ${ACCENT_COLOR_BG} ${ACCENT_COLOR_HOVER} text-black text-sm font-semibold rounded`}
-          >
-            {saving ? '...' : 'Save'}
-          </button>
+      {canUpdate && (
+        <div className="border-t pt-3">
+          <label className="block text-xs font-semibold text-gray-500 mb-1">Admin Note (visible to employee)</label>
+          <div className="flex gap-2">
+            <textarea
+              className="flex-1 border border-gray-300 rounded px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-blue-300"
+              rows={2}
+              value={comment}
+              onChange={e => setComment(e.target.value)}
+              placeholder="Leave a note for this entry..."
+            />
+            <button
+              onClick={saveComment}
+              disabled={saving}
+              className={`self-end px-3 py-1.5 ${ACCENT_COLOR_BG} ${ACCENT_COLOR_HOVER} text-black text-sm font-semibold rounded`}
+            >
+              {saving ? '...' : 'Save'}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

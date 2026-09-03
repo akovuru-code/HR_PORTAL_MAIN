@@ -7,9 +7,10 @@ import Education from "../onboarding/Education";
 import ProfileWork from "../onboarding/ProfileWork";
 import Skills from "../onboarding/Skills";
 import Documents from "../onboarding/Documents";
-import Invoices from "../onboarding/Invoices";
+import InvoiceWorkspaceV2 from "./InvoiceWorkspaceV2";
 import AdminTypography from "../../components/admin/AdminTypography";
 import { AdminViewContext } from "../../contexts/AdminViewContext";
+import { useAuth } from '../../hooks/useAuth';
 
 const TABS = [
   "Personal Info",
@@ -22,6 +23,7 @@ const TABS = [
 ];
 
 export default function EmployeeDetails() {
+  const { isRootAdmin, permissions } = useAuth();
   const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -64,7 +66,7 @@ export default function EmployeeDetails() {
       case "Education": return <Education />;
       case "Resume & Skills": return <Skills />;
       case "Documents": return <Documents />;
-      case "Invoices": return <Invoices />;
+      case "Invoices": return <InvoiceWorkspaceV2 employeeId={Number(id)} />;
       default: return null;
     }
   }
@@ -109,7 +111,7 @@ export default function EmployeeDetails() {
 
         {/* Tabs */}
         <div className="flex gap-3 mb-4 flex-wrap">
-          {TABS.map(tab => (
+          {TABS.filter(tab => tab !== 'Invoices' || isRootAdmin || permissions.includes('invoice:manage')).map(tab => (
             <AdminTypography.button
               key={tab}
               className={`px-6 py-2 rounded-full font-semibold border transition text-base whitespace-nowrap ${activeTab === tab ? "bg-blue-100 text-blue-800 border-blue-300" : "bg-white text-gray-700 border-gray-300 hover:bg-blue-50"}`}
