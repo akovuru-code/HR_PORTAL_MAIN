@@ -233,7 +233,9 @@ export default function Skills() {
             <div key={actualIdx} className="mb-6 p-4 rounded-xl border shadow-sm bg-white-50">
               <div className="flex flex-col md:flex-row gap-4 mb-2">
                 <div className="flex-1">
-                  <EmpTypography.label>Role Name:</EmpTypography.label>
+                  <EmpTypography.label>Role Name<span className="text-red-500">
+                    *
+                  </span>:</EmpTypography.label>
                   <EmpTypography.input
                     type="text"
                     value={section.role}

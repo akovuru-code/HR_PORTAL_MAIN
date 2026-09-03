@@ -104,13 +104,22 @@ export default function ProfileInfo() {
     const api2 = (await import('axios')).default.create({ baseURL: '/api', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
     const fileFields = [
       { file: passportFile, name: 'Passport', type: 'passport', expiry: passportExpiry },
-      { file: visaFile, name: 'Visa', type: 'visa', expiry: visaExpiry },
+      { file: nationality === 'INDIA' ? panFile : null, name: 'PAN Document', type: 'pan', expiry: null },
+      { file: nationality === 'INDIA' ? aadhaarFile : null, name: 'Aadhaar Document', type: 'aadhaar', expiry: null },
+      { file: nationality !== 'INDIA' ? visaFile : null, name: 'Visa', type: 'visa', expiry: visaExpiry },
       { file: dlFile, name: 'Driving License', type: 'dl', expiry: dlExpiry },
       { file: marriageCertFile, name: 'Marriage Certificate', type: 'marriage_cert', expiry: null },
       { file: spousePassportFile, name: 'Spouse Passport', type: 'spouse_passport', expiry: spousePassportExpiry },
-      { file: spouseVisaFile, name: 'Spouse Visa', type: 'spouse_visa', expiry: spouseVisaExpiry },
+      { file: spouseNationality === 'INDIA' ? spousePanFile : null, name: 'Spouse PAN Document', type: 'spouse_pan', expiry: null },
+      { file: spouseNationality === 'INDIA' ? spouseAadhaarFile : null, name: 'Spouse Aadhaar Document', type: 'spouse_aadhaar', expiry: null },
+      { file: spouseNationality !== 'INDIA' ? spouseVisaFile : null, name: 'Spouse Visa', type: 'spouse_visa', expiry: spouseVisaExpiry },
       { file: spouseDlFile, name: 'Spouse Driving License', type: 'spouse_dl', expiry: spouseDlExpiry },
-      ...kidsList.map((k, i) => ({ file: k.docFile, name: `Kid ${i + 1} Document`, type: `kid_${i}`, expiry: k.passportExpiry || null })),
+      ...kidsList.flatMap((kid, index) => [
+        { file: kid.passportFile, name: `Kid ${index + 1} Passport`, type: `kid_${index}_passport`, expiry: kid.passportExpiry || null },
+        { file: kid.nationality === 'INDIA' ? kid.panFile : null, name: `Kid ${index + 1} PAN Document`, type: `kid_${index}_pan`, expiry: null },
+        { file: kid.nationality === 'INDIA' ? kid.aadhaarFile : null, name: `Kid ${index + 1} Aadhaar Document`, type: `kid_${index}_aadhaar`, expiry: null },
+        { file: kid.nationality !== 'INDIA' ? kid.visaFile : null, name: `Kid ${index + 1} Visa`, type: `kid_${index}`, expiry: kid.visaExpiry || null },
+      ]),
     ];
     for (const { file, name, type, expiry } of fileFields) {
       if (file?.url) {
@@ -160,9 +169,9 @@ export default function ProfileInfo() {
         aadhaar: aadhaar.trim() || null,
         visaType: visaType || null,
         visaExpiry: visaExpiry || null,
-        drivingLicense: drivingLicense.trim() || null,
-        dlState: dlState.trim() || null,
-        dlExpiry: dlExpiry || null,
+        drivingLicense: drivingLicenseOption === 'N/A' ? 'N/A' : (drivingLicense.trim() || null),
+        dlState: drivingLicenseOption === 'N/A' ? null : (dlState.trim() || null),
+        dlExpiry: drivingLicenseOption === 'N/A' ? null : (dlExpiry || null),
         emergencyFirstName: emergencyFirstName.trim() || null,
         emergencyMiddleName: emergencyMiddleName.trim() || null,
         emergencyLastName: emergencyLastName.trim() || null,
@@ -172,8 +181,9 @@ export default function ProfileInfo() {
         showKidsInfo,
         // File uploads
         passportFile,
-        visaFile,
-        dlFile,
+        visaFile: nationality === 'INDIA' ? panFile : visaFile,
+        visaFile2: nationality === 'INDIA' ? aadhaarFile : null,
+        dlFile: drivingLicenseOption === 'N/A' ? null : dlFile,
         marriageCertFile,
       };
 
@@ -184,16 +194,25 @@ export default function ProfileInfo() {
         passportNumber: spousePassportNumber, passportExpiry: spousePassportExpiry,
         occupation: spouseOccupation, ssn: spouseSsn, sin: spouseSin, ni: spouseNi, tfn: spouseTfn, pan: spousePan, aadhaar: spouseAadhaar,
         visaType: spouseVisaType,
-        visaExpiry: spouseVisaExpiry, drivingLicense: spouseDrivingLicense,
-        dlState: spouseDlState, dlExpiry: spouseDlExpiry,
+        visaExpiry: spouseVisaExpiry,
+        drivingLicense: spouseDrivingLicenseOption === 'NA' ? 'N/A' : spouseDrivingLicense,
+        dlState: spouseDrivingLicenseOption === 'NA' ? null : spouseDlState,
+        dlExpiry: spouseDrivingLicenseOption === 'NA' ? null : spouseDlExpiry,
         passportFile: spousePassportFile,
-        visaFile: spouseVisaFile,
-        dlFile: spouseDlFile,
+        visaFile: spouseNationality === 'INDIA' ? spousePanFile : spouseVisaFile,
+        visaFile2: spouseNationality === 'INDIA' ? spouseAadhaarFile : null,
+        dlFile: spouseDrivingLicenseOption === 'NA' ? null : spouseDlFile,
       } : null;
 
       // kidsList is already in the expected shape; filter out completely empty entries
       const kidsPayload = Array.isArray(kidsList)
-        ? kidsList.filter(k => (k.firstName || k.lastName || k.dob))
+        ? kidsList
+          .filter(k => (k.firstName || k.lastName || k.dob))
+          .map(kid => ({
+            ...kid,
+            docFile: kid.nationality === 'INDIA' ? kid.panFile : kid.visaFile,
+            docFile2: kid.nationality === 'INDIA' ? kid.aadhaarFile : null,
+          }))
         : [];
 
       // documents: we expect objects like { url, filename, type }
@@ -233,8 +252,12 @@ export default function ProfileInfo() {
       nationality: "",
       passportNumber: "",
       passportExpiry: "",
+      passportFile: null,
       pan: "",
       aadhaar: "",
+      panFile: null,
+      aadhaarFile: null,
+      visaFile: null,
       visaType: "",
       customVisaType: "",
       visaExpiry: "",
@@ -282,8 +305,12 @@ export default function ProfileInfo() {
         nationality: "",
         passportNumber: "",
         passportExpiry: "",
+        passportFile: null,
         pan: "",
         aadhaar: "",
+        panFile: null,
+        aadhaarFile: null,
+        visaFile: null,
         visaType: "",
         customVisaType: "",
         visaExpiry: "",
@@ -424,10 +451,14 @@ export default function ProfileInfo() {
   // File upload states for each document category
   const [passportFile, setPassportFile] = useState(null);
   const [visaFile, setVisaFile] = useState(null);
+  const [panFile, setPanFile] = useState(null);
+  const [aadhaarFile, setAadhaarFile] = useState(null);
   const [dlFile, setDlFile] = useState(null);
   const [marriageCertFile, setMarriageCertFile] = useState(null);
   const [spousePassportFile, setSpousePassportFile] = useState(null);
   const [spouseVisaFile, setSpouseVisaFile] = useState(null);
+  const [spousePanFile, setSpousePanFile] = useState(null);
+  const [spouseAadhaarFile, setSpouseAadhaarFile] = useState(null);
   const [spouseDlFile, setSpouseDlFile] = useState(null);
 
   const [saving, setSaving] = useState(false);
@@ -495,7 +526,9 @@ export default function ProfileInfo() {
         setAadhaar(payload.aadhaar || "");
         setVisaType(payload.visaType || emp?.visaType || "");
         setVisaExpiry(toDate(payload.visaExpiry || payload.visaExpire));
-        setDrivingLicense(payload.drivingLicense || "");
+        const savedDrivingLicense = payload.drivingLicense || "";
+        setDrivingLicense(savedDrivingLicense === "N/A" ? "" : savedDrivingLicense);
+        setDrivingLicenseOption(savedDrivingLicense === "N/A" ? "N/A" : (savedDrivingLicense ? "Available" : ""));
         setDlState(payload.dlState || "");
         setDlExpiry(toDate(payload.dlExpiry || payload.dlExpire));
         setEmergencyFirstName(payload.emergencyFirstName || "");
@@ -531,8 +564,16 @@ export default function ProfileInfo() {
         setEmergencyRelationship(payload.emergencyRelationship || "");
         // File uploads
         if (payload.passportFile) setPassportFile(payload.passportFile);
-        if (payload.visaFile) setVisaFile(payload.visaFile);
-        if (payload.dlFile) setDlFile(payload.dlFile);
+        if (payload.nationality === "INDIA") {
+          setPanFile(payload.visaFile || null);
+          setAadhaarFile(payload.visaFile2 || null);
+          setVisaFile(null);
+        } else {
+          setVisaFile(payload.visaFile || null);
+          setPanFile(null);
+          setAadhaarFile(null);
+        }
+        setDlFile(payload.drivingLicense === "N/A" ? null : (payload.dlFile || null));
         if (payload.marriageCertFile) setMarriageCertFile(payload.marriageCertFile);
         // Spouse/kids/documents
         const spouseRaw = source.spouse || emp?.Spouse;
@@ -572,12 +613,22 @@ export default function ProfileInfo() {
           setSpouseAadhaar(spouseRaw.aadhaar || "");
           setSpouseVisaType(spouseRaw.visaType || spouseRaw.spouse_visa_type || "");
           setSpouseVisaExpiry(toDate(spouseRaw.visaExpiry || spouseRaw.visa_expiry));
-          setSpouseDrivingLicense(spouseRaw.drivingLicense || spouseRaw.driving_license || "");
+          const savedSpouseDrivingLicense = spouseRaw.drivingLicense || spouseRaw.driving_license || "";
+          setSpouseDrivingLicense(savedSpouseDrivingLicense === "N/A" ? "" : savedSpouseDrivingLicense);
+          setSpouseDrivingLicenseOption(savedSpouseDrivingLicense === "N/A" ? "NA" : (savedSpouseDrivingLicense ? "AVAILABLE" : ""));
           setSpouseDlState(spouseRaw.dlState || spouseRaw.dl_state || "");
           setSpouseDlExpiry(toDate(spouseRaw.dlExpiry || spouseRaw.dl_expiry));
           if (spouseRaw.passportFile) setSpousePassportFile(spouseRaw.passportFile);
-          if (spouseRaw.visaFile) setSpouseVisaFile(spouseRaw.visaFile);
-          if (spouseRaw.dlFile) setSpouseDlFile(spouseRaw.dlFile);
+          if (spouseRaw.nationality === "INDIA") {
+            setSpousePanFile(spouseRaw.visaFile || null);
+            setSpouseAadhaarFile(spouseRaw.visaFile2 || null);
+            setSpouseVisaFile(null);
+          } else {
+            setSpouseVisaFile(spouseRaw.visaFile || null);
+            setSpousePanFile(null);
+            setSpouseAadhaarFile(null);
+          }
+          setSpouseDlFile(savedSpouseDrivingLicense === "N/A" ? null : (spouseRaw.dlFile || null));
         }
         const kidsRaw = source.kids || emp?.Kids;
         if (Array.isArray(kidsRaw)) {
@@ -590,6 +641,7 @@ export default function ProfileInfo() {
             nationality: k.nationality || "",
             passportNumber: k.passportNumber || k.passport_number || "",
             passportExpiry: toDate(k.passportExpiry || k.passport_expiry),
+            passportFile: k.passportFile || null,
             ssn: k.ssn || "",
             sin: k.sin || "",
             ni: k.ni || "",
@@ -601,7 +653,11 @@ export default function ProfileInfo() {
             visaExpiry: toDate(k.visaExpiry || k.visa_expiry),
             addressSame: k.addressSame || k.address_same || false,
             address: k.address || { street: "", city: "", state: "", zip: "", country: "" },
-            docFile: k.docFile || null
+            panFile: k.nationality === "INDIA" ? (k.panFile || k.docFile || null) : null,
+            aadhaarFile: k.nationality === "INDIA" ? (k.aadhaarFile || k.docFile2 || null) : null,
+            visaFile: k.nationality !== "INDIA" ? (k.visaFile || k.docFile || null) : null,
+            docFile: k.docFile || null,
+            docFile2: k.docFile2 || null,
           })));
         }
         const docsSrc = source.documents || emp?.Documents;
@@ -878,11 +934,14 @@ export default function ProfileInfo() {
 
                   setNationality(value);
                   setVisaType("");
+                  setVisaExpiry("");
+                  setVisaFile(null);
+                  setPanFile(null);
+                  setAadhaarFile(null);
 
-                  // Visa information is not applicable to Indian citizens
-                  if (value === "INDIA") {
-                    setVisaExpiry("");
-                    setVisaFile(null);
+                  if (value !== "INDIA") {
+                    setPan("");
+                    setAadhaar("");
                   }
                 }}
               >
@@ -1067,19 +1126,17 @@ export default function ProfileInfo() {
                     className="w-full border rounded px-3 py-2"
                   />
 
-                  <FileUploadField
-                    label="Document Upload:"
-                    employeeId={targetEmployeeId || user?.employeeId || user?.id}
-                    category="visa"
-                    documentName="Visa"
-                    value={visaFile}
-                    onChange={setVisaFile}
-                    disabled={onboardingSubmitted && !canEdit}
-                  />
                 </>
               )}
 
-              <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="visa" documentName="Visa" value={visaFile} onChange={setVisaFile} disabled={onboardingSubmitted && !canEdit} />
+              {nationality === "INDIA" ? (
+                <>
+                  <FileUploadField label="PAN Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="pan" documentName="PAN Document" value={panFile} onChange={setPanFile} disabled={onboardingSubmitted && !canEdit} />
+                  <FileUploadField label="Aadhaar Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="aadhaar" documentName="Aadhaar Document" value={aadhaarFile} onChange={setAadhaarFile} disabled={onboardingSubmitted && !canEdit} />
+                </>
+              ) : (
+                <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="visa" documentName="Visa" value={visaFile} onChange={setVisaFile} disabled={onboardingSubmitted && !canEdit} />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1098,6 +1155,9 @@ export default function ProfileInfo() {
 
                   if (value === "N/A") {
                     setDrivingLicense("");
+                    setDlState("");
+                    setDlExpiry("");
+                    setDlFile(null);
                   }
                 }}
               >
@@ -1117,34 +1177,38 @@ export default function ProfileInfo() {
                 />
               )}
 
-              <EmpTypography.label>DL Issue State</EmpTypography.label>
-              <input className="w-full border rounded px-3 py-2" value={dlState} onChange={e => setDlState(e.target.value)} />
-              <EmpTypography.label>DL Expiry date<span className="text-red-500">*</span></EmpTypography.label>
-              <input
-                type="date"
-                value={dlExpiry}
-                min="1900-01-01"
-                max="9999-12-31"
-                onInput={(e) => {
-                  const value = e.target.value;
-                  const parts = value.split("-");
+              {drivingLicenseOption !== "N/A" && (
+                <>
+                  <EmpTypography.label>DL Issue State</EmpTypography.label>
+                  <input className="w-full border rounded px-3 py-2" value={dlState} onChange={e => setDlState(e.target.value)} />
+                  <EmpTypography.label>DL Expiry date<span className="text-red-500">*</span></EmpTypography.label>
+                  <input
+                    type="date"
+                    value={dlExpiry}
+                    min="1900-01-01"
+                    max="9999-12-31"
+                    onInput={(e) => {
+                      const value = e.target.value;
+                      const parts = value.split("-");
 
-                  if (parts[0] && parts[0].length > 4) {
-                    parts[0] = parts[0].slice(0, 4);
-                    e.target.value = parts.join("-");
-                  }
-                }}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  const year = value.split("-")[0];
+                      if (parts[0] && parts[0].length > 4) {
+                        parts[0] = parts[0].slice(0, 4);
+                        e.target.value = parts.join("-");
+                      }
+                    }}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const year = value.split("-")[0];
 
-                  if (year.length <= 4) {
-                    setDlExpiry(value);
-                  }
-                }}
-                className="w-full border rounded px-3 py-2"
-              />
-              <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="dl" documentName="Driving License" value={dlFile} onChange={setDlFile} disabled={onboardingSubmitted && !canEdit} />
+                      if (year.length <= 4) {
+                        setDlExpiry(value);
+                      }
+                    }}
+                    className="w-full border rounded px-3 py-2"
+                  />
+                  <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="dl" documentName="Driving License" value={dlFile} onChange={setDlFile} disabled={onboardingSubmitted && !canEdit} />
+                </>
+              )}
             </div>
 
           </div>
@@ -1154,7 +1218,9 @@ export default function ProfileInfo() {
         {maritalStatus === "Married" && (
           <div className="bg-white border rounded-lg p-4 shadow mt-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className="font-semibold text-lg">Spouse Information</span>
+              <span className="font-semibold text-lg">Spouse Information<span className="text-red-500">
+                *
+              </span></span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
@@ -1246,7 +1312,8 @@ export default function ProfileInfo() {
               </div>
               {!isSpouseAddressSame && (
                 <div className="md:col-span-3">
-                  <label className="block text-sm font-medium mb-1">Present Address</label>
+                  <label className="block text-sm font-medium mb-1">Present Address<span className="text-red-500">
+                    *</span></label>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-medium">Street</label>
@@ -1281,10 +1348,14 @@ export default function ProfileInfo() {
 
                     setSpouseNationality(value);
                     setSpouseVisaType("");
+                    setSpouseVisaExpiry("");
+                    setSpouseVisaFile(null);
+                    setSpousePanFile(null);
+                    setSpouseAadhaarFile(null);
 
-                    if (value === "INDIA") {
-                      setSpouseVisaExpiry("");
-                      setSpouseVisaFile(null);
+                    if (value !== "INDIA") {
+                      setSpousePan("");
+                      setSpouseAadhaar("");
                     }
                   }}
 
@@ -1473,19 +1544,17 @@ export default function ProfileInfo() {
                       className="w-full border rounded px-3 py-2"
                     />
 
-                    <FileUploadField
-                      label="Document Upload:"
-                      employeeId={targetEmployeeId || user?.employeeId || user?.id}
-                      category="visa"
-                      documentName="Visa"
-                      value={spouseVisaFile}
-                      onChange={setSpouseVisaFile}
-                      disabled={onboardingSubmitted && !canEdit}
-                    />
                   </>
                 )}
 
-                <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="visa" documentName="Visa" value={spouseVisaFile} onChange={setSpouseVisaFile} disabled={onboardingSubmitted && !canEdit} />
+                {spouseNationality === "INDIA" ? (
+                  <>
+                    <FileUploadField label="PAN Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_pan" documentName="Spouse PAN Document" value={spousePanFile} onChange={setSpousePanFile} disabled={onboardingSubmitted && !canEdit} />
+                    <FileUploadField label="Aadhaar Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_aadhaar" documentName="Spouse Aadhaar Document" value={spouseAadhaarFile} onChange={setSpouseAadhaarFile} disabled={onboardingSubmitted && !canEdit} />
+                  </>
+                ) : (
+                  <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_visa" documentName="Spouse Visa" value={spouseVisaFile} onChange={setSpouseVisaFile} disabled={onboardingSubmitted && !canEdit} />
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1504,6 +1573,9 @@ export default function ProfileInfo() {
 
                     if (value === "NA") {
                       setSpouseDrivingLicense("");
+                      setSpouseDlState("");
+                      setSpouseDlExpiry("");
+                      setSpouseDlFile(null);
                     }
                   }}
                 >
@@ -1522,30 +1594,34 @@ export default function ProfileInfo() {
                   />
                 )}
 
-                <label className="block text-sm font-medium">DL Issue State</label>
-                <input className="w-full border rounded px-3 py-2" value={dlState} onChange={e => setDlState(e.target.value)} />
-                <label className="block text-sm font-medium">DL Expiry date<span className="text-red-500">*</span></label>
-                <input type="date" value={dlExpiry} min="1900-01-01" max="9999-12-31"
-                  onInput={(e) => {
-                    const value = e.target.value;
-                    const parts = value.split("-");
-                    if (parts[0] && parts[0].length > 4) {
-                      parts[0] = parts[0].slice(0, 4);
-                      e.target.value = parts.join("-");
-                    }
-                  }}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    const year = value.split("-")[0];
+                {spouseDrivingLicenseOption !== "NA" && (
+                  <>
+                    <label className="block text-sm font-medium">DL Issue State</label>
+                    <input className="w-full border rounded px-3 py-2" value={spouseDlState} onChange={e => setSpouseDlState(e.target.value)} />
+                    <label className="block text-sm font-medium">DL Expiry date<span className="text-red-500">*</span></label>
+                    <input type="date" value={spouseDlExpiry} min="1900-01-01" max="9999-12-31"
+                      onInput={(e) => {
+                        const value = e.target.value;
+                        const parts = value.split("-");
+                        if (parts[0] && parts[0].length > 4) {
+                          parts[0] = parts[0].slice(0, 4);
+                          e.target.value = parts.join("-");
+                        }
+                      }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const year = value.split("-")[0];
 
-                    if (year.length <= 4) {
-                      setDlExpiry(value);
-                    }
-                  }}
-                  className="w-full border rounded px-3 py-2"
-                />
+                        if (year.length <= 4) {
+                          setSpouseDlExpiry(value);
+                        }
+                      }}
+                      className="w-full border rounded px-3 py-2"
+                    />
 
-                <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_dl" documentName="Spouse Driving License" value={spouseDlFile} onChange={setSpouseDlFile} disabled={onboardingSubmitted && !canEdit} />
+                    <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_dl" documentName="Spouse Driving License" value={spouseDlFile} onChange={setSpouseDlFile} disabled={onboardingSubmitted && !canEdit} />
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1661,8 +1737,23 @@ export default function ProfileInfo() {
                           className="w-full border rounded px-3 py-2"
                           value={kid.nationality}
                           onChange={(e) => {
-                            updateKid(idx, "nationality", e.target.value);
-                            updateKid(idx, "visaType", "");
+                            const value = e.target.value;
+                            setKidsList(prev => prev.map((currentKid, currentIndex) =>
+                              currentIndex === idx ? {
+                                ...currentKid,
+                                nationality: value,
+                                visaType: "",
+                                customVisaType: "",
+                                visaExpiry: "",
+                                pan: value === "INDIA" ? currentKid.pan : "",
+                                aadhaar: value === "INDIA" ? currentKid.aadhaar : "",
+                                panFile: null,
+                                aadhaarFile: null,
+                                visaFile: null,
+                                docFile: null,
+                                docFile2: null,
+                              } : currentKid
+                            ));
                           }}
                         >
 
@@ -1709,6 +1800,15 @@ export default function ProfileInfo() {
                           }}
                         />
                       </div>
+                      <FileUploadField
+                        label="Passport Document Upload:"
+                        employeeId={targetEmployeeId || user?.employeeId || user?.id}
+                        category={`kid_${idx}_passport`}
+                        documentName={`Kid ${idx + 1} Passport`}
+                        value={kid.passportFile || null}
+                        onChange={(file) => updateKid(idx, "passportFile", file)}
+                        disabled={onboardingSubmitted && !canEdit}
+                      />
                       {/* US */}
                       {kid.nationality === "US" && (
                         <div>
@@ -1880,7 +1980,14 @@ export default function ProfileInfo() {
                         />
                       </div>
 
-                      <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category={`kid_${idx}`} documentName={`Kid ${idx + 1} Document`} value={kid.docFile || null} onChange={(file) => updateKid(idx, "docFile", file)} disabled={onboardingSubmitted && !canEdit} />
+                      {kid.nationality === "INDIA" ? (
+                        <>
+                          <FileUploadField label="PAN Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category={`kid_${idx}_pan`} documentName={`Kid ${idx + 1} PAN Document`} value={kid.panFile || null} onChange={(file) => updateKid(idx, "panFile", file)} disabled={onboardingSubmitted && !canEdit} />
+                          <FileUploadField label="Aadhaar Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category={`kid_${idx}_aadhaar`} documentName={`Kid ${idx + 1} Aadhaar Document`} value={kid.aadhaarFile || null} onChange={(file) => updateKid(idx, "aadhaarFile", file)} disabled={onboardingSubmitted && !canEdit} />
+                        </>
+                      ) : (
+                        <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category={`kid_${idx}`} documentName={`Kid ${idx + 1} Visa`} value={kid.visaFile || null} onChange={(file) => updateKid(idx, "visaFile", file)} disabled={onboardingSubmitted && !canEdit} />
+                      )}
                     </div>
 
                     {/* Delete Button */}
@@ -1913,7 +2020,9 @@ export default function ProfileInfo() {
         {/* Emergency Contact Info */}
         <div className="bg-white border rounded-lg p-4 shadow mt-4">
           <div className="flex items-center gap-2 mb-2">
-            <span className="font-semibold text-lg">Emergency Contact info :</span>
+            <span className="font-semibold text-lg">Emergency Contact info<span className="text-red-500">
+              *
+            </span> :</span>
             {/*<input type="checkbox" className="toggle toggle-success" defaultChecked /> */}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2026,9 +2135,9 @@ export default function ProfileInfo() {
                     aadhaar: aadhaar.trim() || null,
                     visaType: visaType || null,
                     visaExpiry: visaExpiry || null,
-                    drivingLicense: drivingLicense.trim() || null,
-                    dlState: dlState.trim() || null,
-                    dlExpiry: dlExpiry || null,
+                    drivingLicense: drivingLicenseOption === 'N/A' ? 'N/A' : (drivingLicense.trim() || null),
+                    dlState: drivingLicenseOption === 'N/A' ? null : (dlState.trim() || null),
+                    dlExpiry: drivingLicenseOption === 'N/A' ? null : (dlExpiry || null),
                     emergencyFirstName: emergencyFirstName.trim() || null,
                     emergencyMiddleName: emergencyMiddleName.trim() || null,
                     emergencyLastName: emergencyLastName.trim() || null,
@@ -2037,8 +2146,9 @@ export default function ProfileInfo() {
                     emergencyRelationship: emergencyRelationship.trim() || null,
                     showKidsInfo,
                     passportFile,
-                    visaFile,
-                    dlFile,
+                    visaFile: nationality === 'INDIA' ? panFile : visaFile,
+                    visaFile2: nationality === 'INDIA' ? aadhaarFile : null,
+                    dlFile: drivingLicenseOption === 'N/A' ? null : dlFile,
                     marriageCertFile,
                   };
                   const spousePayload = maritalStatus === 'Married' ? {
@@ -2047,13 +2157,24 @@ export default function ProfileInfo() {
                     passportNumber: spousePassportNumber, passportExpiry: spousePassportExpiry,
                     occupation: spouseOccupation, ssn: spouseSsn, sin: spouseSin, ni: spouseNi, tfn: spouseTfn, pan: spousePan, aadhaar: spouseAadhaar,
                     visaType: spouseVisaType,
-                    visaExpiry: spouseVisaExpiry, drivingLicense: spouseDrivingLicense,
-                    dlState: spouseDlState, dlExpiry: spouseDlExpiry,
+                    visaExpiry: spouseVisaExpiry,
+                    drivingLicense: spouseDrivingLicenseOption === 'NA' ? 'N/A' : spouseDrivingLicense,
+                    dlState: spouseDrivingLicenseOption === 'NA' ? null : spouseDlState,
+                    dlExpiry: spouseDrivingLicenseOption === 'NA' ? null : spouseDlExpiry,
                     passportFile: spousePassportFile,
-                    visaFile: spouseVisaFile,
-                    dlFile: spouseDlFile,
+                    visaFile: spouseNationality === 'INDIA' ? spousePanFile : spouseVisaFile,
+                    visaFile2: spouseNationality === 'INDIA' ? spouseAadhaarFile : null,
+                    dlFile: spouseDrivingLicenseOption === 'NA' ? null : spouseDlFile,
                   } : null;
-                  const kidsPayload = Array.isArray(kidsList) ? kidsList.filter(k => (k.firstName || k.lastName || k.dob)) : [];
+                  const kidsPayload = Array.isArray(kidsList)
+                    ? kidsList
+                      .filter(k => (k.firstName || k.lastName || k.dob))
+                      .map(kid => ({
+                        ...kid,
+                        docFile: kid.nationality === 'INDIA' ? kid.panFile : kid.visaFile,
+                        docFile2: kid.nationality === 'INDIA' ? kid.aadhaarFile : null,
+                      }))
+                    : [];
                   const docsPayload = Array.isArray(documents) ? documents : [];
                   const employeeId = targetEmployeeId || user?.employeeId || user?.id;
                   try {

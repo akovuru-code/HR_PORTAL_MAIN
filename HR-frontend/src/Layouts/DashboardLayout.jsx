@@ -30,6 +30,7 @@ const pages = [
   { name: "Settings", path: "/admin/settings" },
   { name: "Help", path: "/admin/help" },
   { name: "Options", path: "/admin/options" },
+  { name: "Payments", path: "/admin/options/payments" },
   { name: "Invoice", path: "/admin/invoice" },
   { name: "Clients", path: "/admin/clients" },
   { name: "Vendors", path: "/admin/vendors" },

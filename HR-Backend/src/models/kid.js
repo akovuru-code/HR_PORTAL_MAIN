@@ -25,7 +25,9 @@ const Kid = sequelize.define('Kid', {
   visa_expiry: DataTypes.DATEONLY,
   address_same: DataTypes.BOOLEAN,
   address: DataTypes.JSONB,
+  passportFile: DataTypes.JSONB,
   docFile: DataTypes.JSONB,
+  docFile2: DataTypes.JSONB,
   kid_address_id: DataTypes.INTEGER,
 }, {
   tableName: 'Kid',

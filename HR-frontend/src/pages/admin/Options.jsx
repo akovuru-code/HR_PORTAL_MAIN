@@ -2,7 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import AdminSidebar from "../../components/admin/Admin_sidebar";
-import { FaBuilding, FaHandshake, FaUsers, FaUserPlus, FaFileAlt, FaBriefcase, FaLaptop, FaCalendarAlt, FaFile, FaLifeRing, FaBullhorn, FaHandHolding, FaHandPaper, FaHandLizard, FaHandshakeSlash, FaRegHandshake, FaPaypal, FaPersonBooth } from "react-icons/fa";
+import { FaBuilding, FaHandshake, FaUsers, FaUserPlus, FaFileAlt, FaBriefcase, FaLaptop, FaCalendarAlt, FaFile, FaLifeRing, FaBullhorn, FaHandHolding, FaHandPaper, FaHandLizard, FaHandshakeSlash, FaRegHandshake, FaPaypal, FaPersonBooth, FaCreditCard } from "react-icons/fa";
 import AdminTypography from "../../components/admin/AdminTypography";
 
 const modules = [
@@ -14,6 +14,7 @@ const modules = [
   { label: "Prime Vendors", icon: <FaRegHandshake />, route: "/admin/prime-vendors" },
   { label: "Projects", icon: <FaBriefcase />, route: "/admin/projects" },
   { label: "Invoice", icon: <FaFile />, route: "/admin/invoice" },
+  { label: "Payments", icon: <FaCreditCard />, route: "/admin/options/payments" },
   { label: "Payroll", icon: <FaPaypal />, route: "/admin/payroll" },
   { label: "Support Tickets", icon: <FaLifeRing />, route: "/admin/support-tickets" },
   { label: "Announcements", icon: <FaBullhorn />, route: "/admin/announcements" },

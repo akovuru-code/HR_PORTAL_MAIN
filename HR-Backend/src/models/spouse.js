@@ -31,6 +31,7 @@ const Spouse = sequelize.define('Spouse', {
   address: DataTypes.JSONB,
   passportFile: DataTypes.JSONB,
   visaFile: DataTypes.JSONB,
+  visaFile2: DataTypes.JSONB,
   dlFile: DataTypes.JSONB,
   spouse_address_id: DataTypes.INTEGER,
 }, {

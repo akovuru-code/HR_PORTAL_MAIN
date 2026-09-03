@@ -15,6 +15,7 @@ const Certification = require('../models/certification');
 const Evaluation = require('../models/evaluation');
 const WorkEmployer = require('../models/workEmployer');
 const WorkClientDetail = require('../models/workClientDetail');
+const { collectWorkClientDrafts, buildWorkClientRows } = require('../utils/workClientPersistence');
 
 // Associations for role sections
 RoleSection.hasMany(ResumeUpload, { foreignKey: 'role_section_id', as: 'resumeUploads' });
@@ -139,6 +140,7 @@ exports.saveOnboarding = async (req, res) => {
                 address: spouse.address || null,
                 passportFile: spouse.passportFile || null,
                 visaFile: spouse.visaFile || null,
+                visaFile2: spouse.visaFile2 || null,
                 dlFile: spouse.dlFile || null,
             };
             const [inst] = await Spouse.findOrCreate({ where: { employee_id: id }, defaults: spouseData, transaction: t });
@@ -167,7 +169,9 @@ exports.saveOnboarding = async (req, res) => {
                     visa_expiry: k.visaExpiry || null,
                     address_same: k.addressSame || false,
                     address: k.address || null,
+                    passportFile: k.passportFile || null,
                     docFile: k.docFile || null,
+                    docFile2: k.docFile2 || null,
                 };
                 await Kid.create(kidData, { transaction: t });
             }
@@ -237,7 +241,10 @@ exports.submitOnboarding = async (req, res) => {
                 dl_expiry: s.dlExpiry || s.dl_expiry || null,
                 is_spouse_address_same: s.isSpouseAddressSame || s.is_spouse_address_same || false,
                 address: s.address || null,
-                passportFile: s.passportFile || null, visaFile: s.visaFile || null, dlFile: s.dlFile || null,
+                passportFile: s.passportFile || null,
+                visaFile: s.visaFile || null,
+                visaFile2: s.visaFile2 || null,
+                dlFile: s.dlFile || null,
             };
             const [inst] = await Spouse.findOrCreate({ where: { employee_id: id }, defaults: spouseData, transaction: t });
             await inst.update(spouseData, { transaction: t });
@@ -260,27 +267,19 @@ exports.submitOnboarding = async (req, res) => {
                     custom_visa_type: k.customVisaType || k.custom_visa_type || null,
                     visa_expiry: k.visaExpiry || k.visa_expiry || null,
                     address_same: k.addressSame || k.address_same || false,
-                    address: k.address || null, docFile: k.docFile || null,
+                    address: k.address || null,
+                    passportFile: k.passportFile || null,
+                    docFile: k.docFile || null,
+                    docFile2: k.docFile2 || null,
                 }, { transaction: t });
             }
         }
 
         // --- Documents (tab: 'documents') ---
-        const docsDraft = draftMap['documents'];
-        if (Array.isArray(docsDraft?.payload?.docs)) {
-            await Document.destroy({ where: { employee_id: id }, transaction: t });
-            for (const doc of docsDraft.payload.docs) {
-                if (doc.source === 'personal-info') continue;
-                await Document.create({
-                    employee_id: id,
-                    name: doc.name || null, url: doc.file?.url || null,
-                    filename: doc.file?.filename || null, originalName: doc.file?.originalName || null,
-                    document_type: doc.file?.category || 'document',
-                    expiry: doc.expiry || null, modifiedBy: doc.modifiedBy || null,
-                    fileData: doc.file || null,
-                }, { transaction: t });
-            }
-        }
+        // Documents are registered by their originating tab using a stable
+        // document_type. Do not replace the employee's whole document set here:
+        // this draft also displays Personal and Work Info documents, and deleting
+        // them loses their persisted file associations.
 
         // --- Resume & Skills (tab: 'skills') ---
         const skillsDraft = draftMap['skills'];
@@ -392,91 +391,32 @@ exports.submitOnboarding = async (req, res) => {
                     start_date: emp.startDate || null,
                     end_date: emp.endDate || null,
                     doc_file: emp.docFile || null,
-                }, { transaction: t });
-            }
-            // Persist client/vendor/prime vendor from profileWork summary fields
-            await WorkClientDetail.destroy({ where: { employee_id: id }, transaction: t });
-            // ProfileWork stores client/vendor/primeVendor as single objects
-            if (wp.client && wp.client.name) {
-                await WorkClientDetail.create({
-                    employee_id: id, type: 'client',
-                    name: wp.client.name || null,
-                    start_date: wp.client.startDate || null, end_date: wp.client.endDate || null,
-                }, { transaction: t });
-            }
-            if (wp.vendor && wp.vendor.name) {
-                await WorkClientDetail.create({
-                    employee_id: id, type: 'vendor',
-                    name: wp.vendor.name || null,
-                    start_date: wp.vendor.startDate || null, end_date: wp.vendor.endDate || null,
-                }, { transaction: t });
-            }
-            if (wp.primeVendor && wp.primeVendor.name) {
-                await WorkClientDetail.create({
-                    employee_id: id, type: 'primeVendor',
-                    name: wp.primeVendor.name || null,
-                    start_date: wp.primeVendor.startDate || null, end_date: wp.primeVendor.endDate || null,
+                    client: emp.client || null,
+                    vendor: emp.vendor || null,
+                    primeVendor: emp.primeVendor || null,
+                    client_name: emp.client?.name || null,
+                    client_start_date: emp.client?.startDate || null,
+                    client_end_date: emp.client?.endDate || null,
+                    vendor_name: emp.vendor?.name || null,
+                    vendor_start_date: emp.vendor?.startDate || null,
+                    vendor_end_date: emp.vendor?.endDate || null,
+                    prime_vendor_name: emp.primeVendor?.name || null,
+                    prime_vendor_start_date: emp.primeVendor?.startDate || null,
+                    prime_vendor_end_date: emp.primeVendor?.endDate || null,
                 }, { transaction: t });
             }
         }
 
-        // --- Work Client Details (tab: 'workClient') — detailed client/vendor/prime info ---
-        const wcDraft = draftMap['workClient'];
-        if (wcDraft?.payload) {
-            const wc = wcDraft.payload;
-            // If workClient draft exists, it has the detailed data — overwrite what profileWork wrote
+        // --- Work Client Details ---
+        // Detailed forms use one isolated draft per employer. The legacy
+        // standalone form continues to use the exact "workClient" tab.
+        const workClientDrafts = collectWorkClientDrafts(draftMap, workDraft);
+
+        if (workDraft?.payload || workClientDrafts.length > 0) {
             await WorkClientDetail.destroy({ where: { employee_id: id }, transaction: t });
-            if (Array.isArray(wc.clientInfo)) {
-                for (const c of wc.clientInfo) {
-                    await WorkClientDetail.create({
-                        employee_id: id, type: 'client',
-                        name: c.name || null, address: c.address || null,
-                        start_date: c.startDate || null, end_date: c.endDate || null,
-                        work_email: c.workEmail || null, manager_email: c.managerEmail || null,
-                        manager_phone: c.managerPhone || null, remote_work_location: c.remoteWorkLocation || null,
-                        doc_file: c.docFile || null,
-                    }, { transaction: t });
-                }
-            }
-            if (Array.isArray(wc.vendorInfo)) {
-                for (const v of wc.vendorInfo) {
-                    await WorkClientDetail.create({
-                        employee_id: id, type: 'vendor',
-                        name: v.name || null, address: v.address || null,
-                        start_date: v.startDate || null, end_date: v.endDate || null,
-                        contact_person: v.parentName || null,
-                        email: v.email || null, phone: v.phone || null, fein: v.finc || null,
-                        doc_file: v.docFile || null,
-                    }, { transaction: t });
-                }
-            }
-            if (Array.isArray(wc.primeInfo)) {
-                for (const p of wc.primeInfo) {
-                    await WorkClientDetail.create({
-                        employee_id: id, type: 'primeVendor',
-                        name: p.name || null, address: p.address || null,
-                        start_date: p.startDate || null, end_date: p.endDate || null,
-                        email: p.email || null, phone: p.phone || null,
-                        doc_file: p.docFile || null,
-                    }, { transaction: t });
-                }
-            }
-            // Persist radio/conditional states as a special metadata record
-            if (wc.clientVendorRadio !== undefined || wc.vendorRadios) {
-                await WorkClientDetail.create({
-                    employee_id: id, type: 'radioStates',
-                    name: JSON.stringify({
-                        clientVendorRadio: wc.clientVendorRadio,
-                        clientPrimeRadio: wc.clientPrimeRadio,
-                        clientVendorName: wc.clientVendorName,
-                        clientPrimeVendorName: wc.clientPrimeVendorName,
-                        vendorRadios: wc.vendorRadios,
-                        vendorClientNames: wc.vendorClientNames,
-                        vendorPrimeNames: wc.vendorPrimeNames,
-                        primeClientNames: wc.primeClientNames,
-                        primeVendorNames: wc.primeVendorNames,
-                    }),
-                }, { transaction: t });
+            const workClientRows = buildWorkClientRows(workClientDrafts, id);
+            for (const row of workClientRows) {
+                await WorkClientDetail.create(row, { transaction: t });
             }
         }
 

@@ -24,6 +24,7 @@ import AdminRecruiting from "./Recruiting";
 import AdminDepartment from "./Department";
 import AdminSupportTickets from "./SupportTickets";
 import AdminRegister from "./Register";
+import AdminPayments from "./Payments";
 
 
 
@@ -38,6 +39,7 @@ export default (
     <Route path="onboarding" element={<EmpOnboard />} />
     <Route path="payroll" element={<AdminPayroll />} />
     <Route path="options" element={<AdminOptions />} />
+    <Route path="options/payments" element={<AdminPayments />} />
     <Route path="invoice" element={<AdminInvoice />} />
     <Route path="projects" element={<AdminProjects />} />
     <Route path="profile" element={<AdminProfile />} />

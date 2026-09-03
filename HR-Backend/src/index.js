@@ -37,6 +37,7 @@ require('./models/adminNote');
 require('./models/companySnapshot');
 require('./models/announcement');
 require('./models/invoice');
+require('./models/payment');
 require('./models/recruiting');
 require('./models/company');
 require('./models/companySettings');
@@ -58,6 +59,7 @@ const payrollRoutes = require('./routes/payroll');
 const adminRoutes = require('./routes/admin');
 const recruitingRoutes = require('./routes/recruiting');
 const invoiceRoutes = require('./routes/invoice');
+const paymentRoutes = require('./routes/payments');
 const companyRoutes = require('./routes/company');
 
 const app = express();
@@ -125,6 +127,7 @@ app.use('/api/timesheet', timesheetAutoRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/payments', paymentRoutes);
 app.use('/api/recruiting', recruitingRoutes);
 app.use('/api/company', companyRoutes);
 

@@ -266,7 +266,9 @@ export default function Education() {
 
       {/* Education Section */}
       <div className="mb-6 border-b pb-6">
-        <EmpTypography.label>Education Details :</EmpTypography.label>
+        <EmpTypography.label>Education Details<span className="text-red-500">
+          *
+        </span> :</EmpTypography.label>
         {educationList.map((edu, idx) => (
           <div key={edu.id || idx} className="mb-4 p-4 rounded-xl border shadow-sm">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
