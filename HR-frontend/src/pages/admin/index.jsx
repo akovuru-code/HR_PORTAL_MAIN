@@ -26,6 +26,7 @@ import AdminSupportTickets from "./SupportTickets";
 import AdminRegister from "./Register";
 import AdminManagement from "./AdminManagement";
 import ProtectedRoute from "../../components/ProtectedRoute";
+import AdminPayments from "./Payments";
 
 
 
@@ -42,6 +43,8 @@ export default (
     <Route path="options" element={<AdminOptions />} />
     <Route path="invoice" element={<ProtectedRoute permission="invoice:manage"><AdminInvoice /></ProtectedRoute>} />
     <Route path="projects" element={<ProtectedRoute permission="operations:manage"><AdminProjects /></ProtectedRoute>} />
+    <Route path="options/payments" element={<ProtectedRoute permission="invoice:manage"><AdminPayments /></ProtectedRoute>} />
+    <Route path="projects" element={<AdminProjects />} />
     <Route path="profile" element={<AdminProfile />} />
     <Route path="clients" element={<ProtectedRoute permission="operations:manage"><AdminClients /></ProtectedRoute>} />
     <Route path="vendors" element={<ProtectedRoute permission="operations:manage"><AdminVendors /></ProtectedRoute>} />

@@ -24,6 +24,7 @@ const WorkClientDetail = sequelize.define('WorkClientDetail', {
   has_client: DataTypes.BOOLEAN,
   client_name: DataTypes.STRING,
   doc_file: DataTypes.JSONB, // { url, filename, originalName, category }
+  country_code: DataTypes.STRING,
   meta: DataTypes.JSONB, // admin-created entries: { status, comment, members, createdBy, updatedBy, vendor, primeVendor, client }
 }, {
   tableName: 'work_client_details',

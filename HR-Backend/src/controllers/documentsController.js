@@ -74,7 +74,14 @@ exports.getDocumentsForEmployee = async (req, res) => {
 // If no document_type provided, always inserts (for multi-file sections like onboard docs).
 exports.registerDocument = async (req, res) => {
   try {
-    const employee = await resolveEmployee(req.user.id);
+    const requestedEmployeeId = req.body.employeeId;
+    const isAdminUser = isAdmin(req.user);
+    const employee = requestedEmployeeId
+      ? await resolveEmployeeById(requestedEmployeeId)
+      : await resolveEmployee(req.user.id);
+    if (requestedEmployeeId && !isAdminUser && String(req.user?.employeeId || req.user?.id) !== String(requestedEmployeeId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     if (!employee) return res.status(404).json({ error: 'Employee not found' });
 
     const { name, url, filename, originalName, document_type, fileData, expiry } = req.body;
@@ -126,7 +133,14 @@ exports.createDocument = async (req, res) => {
 // DELETE /api/documents/type/:documentType
 exports.deleteByType = async (req, res) => {
   try {
-    const employee = await resolveEmployee(req.user.id);
+    const requestedEmployeeId = req.query.employeeId;
+    const isAdminUser = isAdmin(req.user);
+    const employee = requestedEmployeeId
+      ? await resolveEmployeeById(requestedEmployeeId)
+      : await resolveEmployee(req.user.id);
+    if (requestedEmployeeId && !isAdminUser && String(req.user?.employeeId || req.user?.id) !== String(requestedEmployeeId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     if (!employee) return res.status(404).json({ error: 'Employee not found' });
     await Document.destroy({
       where: { employee_id: employee.employee_id, document_type: req.params.documentType },

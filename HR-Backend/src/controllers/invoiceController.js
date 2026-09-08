@@ -1,6 +1,8 @@
 const { Op } = require('sequelize');
 const Invoice = require('../models/invoice');
 const InvoiceItem = require('../models/invoiceItem');
+const Payment = require('../models/payment');
+const PaymentAllocation = require('../models/paymentAllocation');
 const Employee = require('../models/employee');
 const WorkClientDetail = require('../models/workClientDetail');
 const Company = require('../models/company');
@@ -16,8 +18,13 @@ const emailPattern = /^\S+@\S+\.\S+$/;
 
 function dateOnly(value) { return value ? String(value).slice(0, 10) : null; }
 function fullName(employee) { return [employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || employee?.name || employee?.email || ''; }
-function invoiceJson(invoice, items = []) {
-  return { ...invoice.toJSON(), items: items.map(item => item.toJSON ? item.toJSON() : item), pdfUrl: invoice.pdfPath ? `/api/invoices/records/${invoice.id}/pdf` : (invoice.url || null) };
+function paymentJson(payment) {
+  const value = payment.toJSON ? payment.toJSON() : payment;
+  return { id: value.id, date: value.date, referenceNumber: value.referenceNumber, paymentMethod: value.paymentMethod, amount: Number(value.amount || 0) };
+}
+function invoiceJson(invoice, items = [], payments = []) {
+  const paymentsApplied = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  return { ...invoice.toJSON(), items: items.map(item => item.toJSON ? item.toJSON() : item), paymentsApplied: Number(paymentsApplied.toFixed(2)), payments: payments.map(paymentJson), pdfUrl: invoice.pdfPath ? `/api/invoices/records/${invoice.id}/pdf` : (invoice.url || null) };
 }
 function invoiceUpdateValues(body, subtotal, existing, company) {
   return {
@@ -54,10 +61,30 @@ function validate(body, items) {
   return calculateItems(items);
 }
 async function getItems(invoiceId) { return InvoiceItem.findAll({ where: { invoice_id: invoiceId }, order: [['id', 'ASC']] }); }
+async function getPayments(invoiceId) {
+  const [allocations, legacyPayments] = await Promise.all([
+    PaymentAllocation.findAll({
+      where: { invoice_id: invoiceId },
+      include: [{ model: Payment, as: 'payment' }],
+      order: [['createdAt', 'DESC'], ['id', 'DESC']],
+    }),
+    Payment.findAll({
+      where: { invoice_id: invoiceId },
+      include: [{ model: PaymentAllocation, as: 'allocations', required: false }],
+      order: [['date', 'DESC'], ['id', 'DESC']],
+    }),
+  ]);
+  const allocatedPayments = allocations.map(allocation => {
+    const payment = allocation.payment?.toJSON ? allocation.payment.toJSON() : allocation.payment;
+    return { ...payment, amount: allocation.amount };
+  }).filter(Boolean);
+  const unallocatedLegacyPayments = legacyPayments.filter(payment => !(payment.allocations || []).length);
+  return [...allocatedPayments, ...unallocatedLegacyPayments];
+}
 async function getInvoice(id) {
   const invoice = await Invoice.findByPk(id);
   if (!invoice) return null;
-  return { invoice, items: await getItems(invoice.id) };
+  return { invoice, items: await getItems(invoice.id), payments: await getPayments(invoice.id) };
 }
 
 exports.list = async (req, res) => {
@@ -65,7 +92,7 @@ exports.list = async (req, res) => {
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : null;
     if (req.query.employeeId && !Number.isInteger(employeeId)) return res.status(400).json({ error: 'employeeId must be a valid integer' });
     const invoices = await Invoice.findAll({ where: employeeId ? { employee_id: employeeId } : undefined, order: [['createdAt', 'DESC']] });
-    const result = await Promise.all(invoices.map(async invoice => invoiceJson(invoice, await getItems(invoice.id))));
+    const result = await Promise.all(invoices.map(async invoice => invoiceJson(invoice, await getItems(invoice.id), await getPayments(invoice.id))));
     res.json({ invoices: result });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -136,12 +163,12 @@ exports.create = async (req, res) => {
       subtotal, total: subtotal, balanceDue: subtotal, status: req.body.status || 'Draft', createdBy: req.body.createdBy || '', updatedBy: '',
     });
     const savedItems = await InvoiceItem.bulkCreate(items.map(item => ({ ...item, invoice_id: invoice.id })), { returning: true });
-    res.status(201).json({ invoice: invoiceJson(invoice, savedItems) });
+    res.status(201).json({ invoice: invoiceJson(invoice, savedItems, []) });
   } catch (err) { res.status(400).json({ error: err.message }); }
 };
 
 exports.get = async (req, res) => {
-  try { const result = await getInvoice(req.params.id); if (!result) return res.status(404).json({ error: 'Invoice not found' }); res.json({ invoice: invoiceJson(result.invoice, result.items) }); }
+  try { const result = await getInvoice(req.params.id); if (!result) return res.status(404).json({ error: 'Invoice not found' }); res.json({ invoice: invoiceJson(result.invoice, result.items, result.payments) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 };
 
@@ -152,11 +179,16 @@ exports.update = async (req, res) => {
     const company = await Company.findByPk(req.body.companyId);
     if (!company) return res.status(400).json({ error: 'Selected company was not found' });
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
-    await result.invoice.update(invoiceUpdateValues(req.body, subtotal, result.invoice, company));
+    const paymentsApplied = result.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    if (subtotal + 0.00001 < paymentsApplied) return res.status(400).json({ error: 'Invoice total cannot be less than payments already applied.' });
+    const values = invoiceUpdateValues(req.body, subtotal, result.invoice, company);
+    values.balanceDue = Number((subtotal - paymentsApplied).toFixed(2));
+    if (values.balanceDue === 0) values.status = 'Paid';
+    await result.invoice.update(values);
     await InvoiceItem.destroy({ where: { invoice_id: result.invoice.id } });
     const savedItems = await InvoiceItem.bulkCreate(items.map(item => ({ ...item, invoice_id: result.invoice.id })), { returning: true });
     await result.invoice.reload();
-    res.json({ invoice: invoiceJson(result.invoice, savedItems) });
+    res.json({ invoice: invoiceJson(result.invoice, savedItems, result.payments) });
   } catch (err) { res.status(400).json({ error: err.message }); }
 };
 
@@ -167,7 +199,7 @@ exports.generatePdf = async (req, res) => {
     const pdf = await generateInvoicePdf({ invoice: result.invoice, items: result.items, company });
     await result.invoice.update({ pdfPath: pdf.outputPath, pdfVersion: pdf.version, filename: pdf.filename, originalName: pdf.downloadName, templateName: pdf.templateName, url: `/api/invoices/records/${result.invoice.id}/pdf`, status: result.invoice.status === 'Draft' ? 'Generated' : result.invoice.status, generatedDate: new Date().toISOString().slice(0, 10) });
     await result.invoice.reload();
-    res.json({ invoice: invoiceJson(result.invoice, result.items) });
+    res.json({ invoice: invoiceJson(result.invoice, result.items, result.payments) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 

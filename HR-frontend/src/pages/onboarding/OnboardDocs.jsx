@@ -352,23 +352,33 @@ export default function ProfileOnboardDocs() {
       {/* Bank Details */}
       <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
         <div className="flex items-center gap-2 mb-3">
-          <EmpTypography.h2>Bank Details :</EmpTypography.h2>
+          <EmpTypography.h2>Bank Details<span className="text-red-500">
+            *
+          </span>:</EmpTypography.h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <EmpTypography.label>Bank Name*</EmpTypography.label>
+            <EmpTypography.label>Bank Name<span className="text-red-500">
+              *
+            </span></EmpTypography.label>
             <input className="border rounded px-2 py-1 w-full" value={bank.name} onChange={e => setBank(b => ({ ...b, name: e.target.value }))} disabled={isReadOnly} />
           </div>
           <div>
-            <EmpTypography.label>A/C No*</EmpTypography.label>
+            <EmpTypography.label>A/C No<span className="text-red-500">
+              *
+            </span></EmpTypography.label>
             <input className="border rounded px-2 py-1 w-full" value={bank.acc} onChange={e => setBank(b => ({ ...b, acc: e.target.value }))} disabled={isReadOnly} />
           </div>
           <div>
-            <EmpTypography.label>Routing No*</EmpTypography.label>
+            <EmpTypography.label>Routing No<span className="text-red-500">
+              *
+            </span></EmpTypography.label>
             <input className="border rounded px-2 py-1 w-full" value={bank.routing} onChange={e => setBank(b => ({ ...b, routing: e.target.value }))} disabled={isReadOnly} />
           </div>
           <div>
-            <EmpTypography.label>Account type*</EmpTypography.label>
+            <EmpTypography.label>Account type<span className="text-red-500">
+              *
+            </span></EmpTypography.label>
             <select className="border rounded px-2 py-1 w-full" value={bank.type} onChange={e => setBank(b => ({ ...b, type: e.target.value }))} disabled={isReadOnly}>
               <option value="">Select</option>
               <option>Savings</option>
@@ -380,7 +390,9 @@ export default function ProfileOnboardDocs() {
 
       {/* Insurance Table Section */}
       <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
-        <EmpTypography.h2 className="mb-3">Insurance :</EmpTypography.h2>
+        <EmpTypography.h2 className="mb-3">Insurance<span className="text-red-500">
+          *
+        </span> :</EmpTypography.h2>
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-[#b7d3e8] text-gray-900">

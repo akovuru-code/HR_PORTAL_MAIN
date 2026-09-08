@@ -541,6 +541,8 @@ export default function AdminVendors() {
     const [modalOpen, setModalOpen] = useState(false);
     const [editVendor, setEditVendor] = useState(null);
     const [viewDetails, setViewDetails] = useState(null);
+    const [mappingVendorId, setMappingVendorId] = useState('');
+    const [mappingEmployeeId, setMappingEmployeeId] = useState('');
 
     function handleFilterDateChange(setDate) {
         return (e) => {
@@ -572,6 +574,7 @@ export default function AdminVendors() {
         const matchesStartTo = !startDateTo || (v.startDate && v.startDate <= startDateTo);
         return matchesSearch && matchesStatus && matchesStartFrom && matchesStartTo;
     });
+    const mappingRows = vendors.flatMap(vendor => (vendor.employeeRates || []).map(entry => ({ vendorId: vendor.id, vendorName: vendor.name, employeeId: entry.employeeId, employeeName: entry.name || allEmployees.find(employee => String(employee.id) === String(entry.employeeId))?.name || 'Employee', rate: entry.rate }))).filter(row => (!mappingVendorId || String(row.vendorId) === String(mappingVendorId)) && (!mappingEmployeeId || String(row.employeeId) === String(mappingEmployeeId)));
 
     function handleAdd() {
         setEditVendor(null);
@@ -730,6 +733,15 @@ export default function AdminVendors() {
                     </AdminTypography.button>
                 </div>
             </div>
+            <section className="mb-6 rounded-xl border bg-white p-4 shadow-sm">
+                <AdminTypography.h3 className="mb-3 text-gray-900">Vendor / Employee Rates</AdminTypography.h3>
+                <div className="grid gap-3 md:grid-cols-3">
+                    <select className="border rounded px-3 py-2" value={mappingVendorId} onChange={event => setMappingVendorId(event.target.value)}><option value="">Select Vendor</option>{vendors.map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select>
+                    <select className="border rounded px-3 py-2" value={mappingEmployeeId} onChange={event => setMappingEmployeeId(event.target.value)}><option value="">Select Employee</option>{allEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select>
+                    <AdminTypography.button className="border rounded px-3 py-2" onClick={() => { setMappingVendorId(''); setMappingEmployeeId(''); }}>Clear Filters</AdminTypography.button>
+                </div>
+                {(mappingVendorId || mappingEmployeeId) && <div className="mt-4 overflow-x-auto border rounded-lg"><table className="min-w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Vendor</th><th className="p-3 text-left">Employee</th><th className="p-3 text-right">Rate Per Hour</th></tr></thead><tbody>{mappingRows.length ? mappingRows.map(row => <tr key={`${row.vendorId}-${row.employeeId}`} className="border-t"><td className="p-3">{row.vendorName}</td><td className="p-3">{row.employeeName}</td><td className="p-3 text-right">{Number(row.rate || 0).toFixed(2)}</td></tr>) : <tr><td colSpan="3" className="p-6 text-center text-gray-500">{mappingVendorId ? 'No employees are assigned to this vendor.' : 'No vendors are assigned to this employee.'}</td></tr>}</tbody></table></div>}
+            </section>
             <div className="overflow-x-auto bg-white border rounded-xl shadow-sm">
                 <table className="min-w-full text-gray-900">
                     <thead>

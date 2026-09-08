@@ -2,7 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import AdminSidebar from "../../components/admin/Admin_sidebar";
-import { FaBuilding, FaHandshake, FaUsers, FaUserPlus, FaFileAlt, FaBriefcase, FaLaptop, FaCalendarAlt, FaFile, FaLifeRing, FaBullhorn, FaHandHolding, FaHandPaper, FaHandLizard, FaHandshakeSlash, FaRegHandshake, FaPaypal, FaPersonBooth } from "react-icons/fa";
+import { FaBuilding, FaHandshake, FaUsers, FaUserPlus, FaFileAlt, FaBriefcase, FaLaptop, FaCalendarAlt, FaFile, FaLifeRing, FaBullhorn, FaHandHolding, FaHandPaper, FaHandLizard, FaHandshakeSlash, FaRegHandshake, FaPaypal, FaPersonBooth, FaCreditCard } from "react-icons/fa";
 import AdminTypography from "../../components/admin/AdminTypography";
 
 const modules = [
@@ -13,7 +13,6 @@ const modules = [
   { label: "Vendors", icon: <FaHandshake />, route: "/admin/vendors", permission: "operations:manage" },
   { label: "Prime Vendors", icon: <FaRegHandshake />, route: "/admin/prime-vendors", permission: "operations:manage" },
   { label: "Projects", icon: <FaBriefcase />, route: "/admin/projects", permission: "operations:manage" },
-  { label: "Invoice", icon: <FaFile />, route: "/admin/invoice", permission: "invoice:manage" },
   { label: "Payroll", icon: <FaPaypal />, route: "/admin/payroll", permission: "payroll:view" },
   { label: "Support Tickets", icon: <FaLifeRing />, route: "/admin/support-tickets", permission: "support_tickets:view" },
   { label: "Announcements", icon: <FaBullhorn />, route: "/admin/announcements", permission: "announcements:manage" },

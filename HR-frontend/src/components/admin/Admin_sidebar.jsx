@@ -1,5 +1,5 @@
-import React from "react";
-import { FaChartBar, FaUsers, FaClock, FaFileAlt, FaPlus, FaQuestionCircle, FaCog } from "react-icons/fa";
+import React, { useState } from "react";
+import { FaChartBar, FaUsers, FaClock, FaFileAlt, FaPlus, FaQuestionCircle, FaCog, FaCreditCard, FaFileInvoice, FaChevronDown, FaChevronUp } from "react-icons/fa";
 import { useLocation, Link } from "react-router-dom";
 import { useAuth } from '../../hooks/useAuth';
 
@@ -22,6 +22,9 @@ export default function AdminSidebar() {
     // If using react-router, use useLocation for active route
     const location = useLocation();
     const { isRootAdmin, permissions } = useAuth();
+    const billingActive = location.pathname.startsWith('/admin/options/payments') || location.pathname.startsWith('/admin/invoice');
+    const [billingOpen, setBillingOpen] = useState(billingActive);
+    const canBill = isRootAdmin || permissions.includes('invoice:manage');
     return (
         <aside
             className="bg-[#0b1229] text-white w-56 min-h-screen flex flex-col py-6 px-4 font-sans"
@@ -34,16 +37,16 @@ export default function AdminSidebar() {
             <nav className="flex-1" aria-label="Main menu">
                 {menuItems.filter(item => isRootAdmin || !item.permission || permissions.includes(item.permission)).map((item) => {
                     const isActive = location.pathname.startsWith(item.href);
-                    return (
+                    return (<React.Fragment key={item.label}>
                         <Link
-                            key={item.label}
                             to={item.href}
                             className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 text-base font-medium transition-colors ${isActive ? "bg-slate-800 text-blue-400" : "hover:bg-slate-800 hover:text-blue-300"}`}
                             aria-current={isActive ? "page" : undefined}
                         >
                             <span className="text-xl">{item.icon}</span> {item.label}
                         </Link>
-                    );
+                        {item.label === 'Employees' && canBill && <div className="mb-1"><button type="button" onClick={() => setBillingOpen(value => !value)} className={`flex w-full items-center gap-3 px-3 py-2 rounded-lg text-base font-medium transition-colors ${billingActive ? "bg-slate-800 text-blue-400" : "hover:bg-slate-800 hover:text-blue-300"}`}><span className="text-xl"><FaCreditCard /></span> Billing <span className="ml-auto">{billingOpen || billingActive ? <FaChevronUp /> : <FaChevronDown />}</span></button>{(billingOpen || billingActive) && <div className="ml-7 mt-1 flex flex-col gap-1"><Link to="/admin/options/payments" className={`rounded px-3 py-1.5 text-sm ${location.pathname.startsWith('/admin/options/payments') ? 'bg-slate-800 text-blue-400' : 'hover:bg-slate-800 hover:text-blue-300'}`}><FaCreditCard className="mr-2 inline" />Payments</Link><Link to="/admin/invoice" className={`rounded px-3 py-1.5 text-sm ${location.pathname.startsWith('/admin/invoice') ? 'bg-slate-800 text-blue-400' : 'hover:bg-slate-800 hover:text-blue-300'}`}><FaFileInvoice className="mr-2 inline" />Invoice</Link></div>}</div>}
+                    </React.Fragment>);
                 })}
             </nav>
             <div className="mt-auto flex flex-col gap-2 text-base font-medium">

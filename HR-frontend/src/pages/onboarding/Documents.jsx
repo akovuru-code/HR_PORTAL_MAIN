@@ -354,13 +354,13 @@ export default function ProfileDocuments() {
             <option value="visa">Visa</option>
           </select>
           <input type="file" className="text-xs" onChange={e => setFilterFile(e.target.files[0])} />
-          <button
+          {/* <button
             className="px-4 py-1 bg-blue-100 text-blue-900 rounded-lg text-sm font-semibold transition duration-150 hover:bg-blue-200 active:scale-95 active:bg-blue-300 focus:outline-none border border-blue-200"
             style={{ minWidth: 80 }}
             onClick={handleFilter}
           >
             Result
-          </button>
+          </button> */}
         </div>
         {filterResult && <div className="mt-2 text-xs text-gray-700">{filterResult}</div>}
       </div>

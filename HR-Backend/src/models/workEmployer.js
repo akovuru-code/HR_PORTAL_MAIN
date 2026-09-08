@@ -10,6 +10,18 @@ const WorkEmployer = sequelize.define('WorkEmployer', {
   start_date: DataTypes.DATEONLY,
   end_date: DataTypes.DATEONLY,
   doc_file: DataTypes.JSONB, // { url, filename, originalName, category }
+  client: DataTypes.JSONB, // { name, startDate, endDate }
+  vendor: DataTypes.JSONB, // { name, startDate, endDate }
+  primeVendor: DataTypes.JSONB, // { name, startDate, endDate }
+  client_name: DataTypes.STRING,
+  client_start_date: DataTypes.DATEONLY,
+  client_end_date: DataTypes.DATEONLY,
+  vendor_name: DataTypes.STRING,
+  vendor_start_date: DataTypes.DATEONLY,
+  vendor_end_date: DataTypes.DATEONLY,
+  prime_vendor_name: DataTypes.STRING,
+  prime_vendor_start_date: DataTypes.DATEONLY,
+  prime_vendor_end_date: DataTypes.DATEONLY,
 }, {
   tableName: 'work_employers',
   timestamps: true,
@@ -19,3 +31,4 @@ const WorkEmployer = sequelize.define('WorkEmployer', {
 
 
 module.exports = WorkEmployer;
+

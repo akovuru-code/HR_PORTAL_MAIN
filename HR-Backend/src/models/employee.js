@@ -43,6 +43,7 @@ const Employee = sequelize.define('Employee', {
   // File uploads (stored as JSON: { url, originalName, filename, category })
   passportFile: DataTypes.JSONB,
   visaFile: DataTypes.JSONB,
+  visaFile2: DataTypes.JSONB,
   dlFile: DataTypes.JSONB,
   marriageCertFile: DataTypes.JSONB,
   emergencyEnabled: DataTypes.BOOLEAN,

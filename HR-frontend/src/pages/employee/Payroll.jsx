@@ -82,12 +82,21 @@ export default function EmployeePayroll() {
             <section className="bg-white rounded-lg shadow p-4 mb-6 flex flex-col md:flex-row gap-4 items-center">
                 <div className="flex flex-col">
                     <EmpTypography.label htmlFor="upload-date" className="mb-1">Pay Cheque Date</EmpTypography.label>
+
                     <input
                         id="upload-date"
                         type="date"
                         className="border rounded px-2 py-1"
                         value={uploadDate}
-                        onChange={e => setUploadDate(e.target.value)}
+                        min="1900-01-01"
+                        max="2099-12-31"
+                        onChange={e => {
+                            const value = e.target.value;
+
+                            if (value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                                setUploadDate(value);
+                            }
+                        }}
                     />
                 </div>
                 <div className="flex flex-col flex-1">
