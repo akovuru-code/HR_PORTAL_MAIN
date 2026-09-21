@@ -69,7 +69,7 @@ export default function ProfileInfo() {
             <input className="w-full border rounded px-3 py-2" />
             <label className="block text-sm font-medium">Visa Expire date</label>
             <input type="date" className="w-full border rounded px-3 py-2" />
-            <label className="block text-sm font-medium">Document Upload:</label>
+            <label className="block text-sm font-medium">Visa Document Upload:</label>
             <input type="file" className="w-full" />
           </div>
           <div className="space-y-2">
@@ -79,7 +79,7 @@ export default function ProfileInfo() {
             <input className="w-full border rounded px-3 py-2" />
             <label className="block text-sm font-medium">DL Expire date</label>
             <input type="date" className="w-full border rounded px-3 py-2" />
-            <label className="block text-sm font-medium">Document Upload:</label>
+            <label className="block text-sm font-medium">DL Document Upload:</label>
             <input type="file" className="w-full" />
           </div>
         </div>
@@ -139,7 +139,7 @@ export default function ProfileInfo() {
               <input className="w-full border rounded px-3 py-2" />
               <label className="block text-sm font-medium">Visa Expire date</label>
               <input type="date" className="w-full border rounded px-3 py-2" />
-              <label className="block text-sm font-medium">Document Upload:</label>
+              <label className="block text-sm font-medium">Visa Document Upload:</label>
               <input type="file" className="w-full" />
               <label className="block text-sm font-medium">Marriage Certificate:</label>
               <input type="file" className="w-full" />
@@ -151,7 +151,7 @@ export default function ProfileInfo() {
               <input className="w-full border rounded px-3 py-2" />
               <label className="block text-sm font-medium">DL Expire date</label>
               <input type="date" className="w-full border rounded px-3 py-2" />
-              <label className="block text-sm font-medium">Document Upload:</label>
+              <label className="block text-sm font-medium">DL Document Upload:</label>
               <input type="file" className="w-full" />
               <label className="block text-sm font-medium">Occupation:</label>
               <input className="w-full border rounded px-3 py-2" />
@@ -208,7 +208,7 @@ export default function ProfileInfo() {
               <input type="date" className="w-full border rounded px-3 py-2" />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Document Upload:</label>
+              <label className="block text-sm font-medium mb-1">Visa Document Upload:</label>
               <input type="file" className="w-full" />
             </div>
           </div>

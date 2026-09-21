@@ -42,10 +42,13 @@ const Employee = sequelize.define('Employee', {
   showKidsInfo: DataTypes.BOOLEAN,
   // File uploads (stored as JSON: { url, originalName, filename, category })
   passportFile: DataTypes.JSONB,
+  passportFile2: DataTypes.JSONB,
   visaFile: DataTypes.JSONB,
   visaFile2: DataTypes.JSONB,
   dlFile: DataTypes.JSONB,
   marriageCertFile: DataTypes.JSONB,
+  i9File: DataTypes.JSONB,
+  w4File: DataTypes.JSONB,
   emergencyEnabled: DataTypes.BOOLEAN,
   emergencyFirstName: DataTypes.STRING,
   emergencyMiddleName: DataTypes.STRING,

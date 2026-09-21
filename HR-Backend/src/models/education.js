@@ -4,6 +4,7 @@ const sequelize = require('./db');
 const Education = sequelize.define('Education', {
   education_id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
   employee_id: DataTypes.INTEGER,
+  education_level: { type: DataTypes.STRING, allowNull: true },
   degree: DataTypes.STRING,
   university: DataTypes.STRING,
   major: DataTypes.STRING,

@@ -11,7 +11,8 @@ This document describes the design for the Employee Profile Education screen, co
 - **Header**: Shows user info, search bar, and settings icon.
 - **Profile Card**: Displays employee photo, name, SSN, visa status, organization, client info, and status (Active).
 - **Navigation Tabs**: Personal Info, Onboard Docs, Work Info, Education (active), Resume & Skills, Documents, Invoices.
-- **Education Details Section**: Fields for Degree, University, Major, Year of Completion, Address. Document upload with Add button for multiple entries.
+- **Education Details Section**: Five fixed cards ordered Master's, Degree, Bachelor's, Class 12th, High School. Each uses the existing Degree card's rounded border, shadow, padding, responsive fields, and document upload. Fields are Degree, University, Major, Address, Start Date, and End Date. Education Add/Delete controls are removed.
+- **Legacy qualifications**: Explicit saved levels take priority; recognizable older qualifications map to their level. Ambiguous and duplicate records remain editable in an existing-qualifications area inside the Degree card. Additional saved documents remain available as links.
 - **Certifications Section**: Fields for Certificate Name, Organization, Attachment. Document upload with Add button for multiple entries. List of uploaded certificates with file name.
 - **Evaluation Section**: File upload field for evaluation documents.
 - **Styling**: Match the attached screenshot for layout, spacing, icons, and section separation. Use rounded corners, light backgrounds, and clear section headers.
@@ -57,6 +58,7 @@ This document describes the design for the Employee Profile Education screen, co
 - **EducationDetails**
   - id
   - employeeId
+  - educationLevel (nullable; stored as `educations.education_level`, independent of degree text)
   - degree
   - university
   - major
@@ -105,8 +107,15 @@ This document describes the design for the Employee Profile Education screen, co
 ---
 
 ## 6. Extensibility
-- Modular forms and table for easy addition of new education or certification types.
+- Education levels are fixed; certification and evaluation entries retain their existing independent controls.
 - API and DB designed for future expansion (e.g., more document types).
+
+### Education persistence and rollout
+- Apply `HR-Backend/migrations/20260919_education_levels.sql` before deploying the updated backend. The additive migration leaves existing rows and associations intact; it does not backfill guessed levels.
+- `src/utils/educationPersistence.js` updates education records by employee-scoped identity, with level matching for new fixed cards. Omitted legacy records and additional uploads are retained.
+- Certification changes preserve existing associations; the UI sends explicit deleted certification IDs rather than interpreting omissions in older drafts as deletions.
+- Drafts without level identifiers remain supported. A blank new card is a UI placeholder, not a stored qualification.
+- The existing onboarding endpoints and submission transaction remain in use. The employee page and active admin details page share the same Education component.
 
 ---
 

@@ -37,12 +37,7 @@ export default function FileUploadField({ employeeId, category, label, documentN
             const res = await api.post(`/local-upload/${employeeId}`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
-            const fileInfo = {
-                url: res.data.file.url,
-                originalName: res.data.file.originalName,
-                filename: res.data.file.filename,
-                category: res.data.file.category,
-            };
+            const fileInfo = { ...res.data.file };
             onChange(fileInfo);
         } catch (err) {
             setError(err?.response?.data?.error || "Upload failed");

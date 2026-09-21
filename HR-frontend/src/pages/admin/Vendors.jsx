@@ -234,10 +234,9 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                         </div>
                         <div>
                             <AdminTypography.label htmlFor="startDate">Start Date</AdminTypography.label>
-                            <input
+                            <input type="date"
                                 id="startDate"
                                 name="startDate"
-                                type="date"
                                 className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                 value={form.startDate}
                                 onChange={handleChange}
@@ -247,10 +246,9 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                         </div>
                         <div>
                             <AdminTypography.label htmlFor="endDate">End Date</AdminTypography.label>
-                            <input
+                            <input type="date"
                                 id="endDate"
                                 name="endDate"
-                                type="date"
                                 className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                 value={form.endDate}
                                 onChange={handleChange}
@@ -348,10 +346,9 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                                     <div className="flex gap-2">
                                         <div className="flex-1">
                                             <AdminTypography.label htmlFor="client.startDate">Client Start Date</AdminTypography.label>
-                                            <input
+                                            <input type="date"
                                                 id="client.startDate"
                                                 name="client.startDate"
-                                                type="date"
                                                 className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                                 value={form.client.startDate}
                                                 onChange={handleChange}
@@ -361,10 +358,9 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                                         </div>
                                         <div className="flex-1">
                                             <AdminTypography.label htmlFor="client.endDate">Client End Date</AdminTypography.label>
-                                            <input
+                                            <input type="date"
                                                 id="client.endDate"
                                                 name="client.endDate"
-                                                type="date"
                                                 className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                                 value={form.client.endDate}
                                                 onChange={handleChange}
@@ -406,10 +402,9 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                                     <div className="flex gap-2">
                                         <div className="flex-1">
                                             <AdminTypography.label htmlFor="primeVendor.startDate">Prime Vendor Start Date</AdminTypography.label>
-                                            <input
+                                            <input type="date"
                                                 id="primeVendor.startDate"
                                                 name="primeVendor.startDate"
-                                                type="date"
                                                 className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                                 value={form.primeVendor.startDate}
                                                 onChange={handleChange}
@@ -419,10 +414,9 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
                                         </div>
                                         <div className="flex-1">
                                             <AdminTypography.label htmlFor="primeVendor.endDate">Prime Vendor End Date</AdminTypography.label>
-                                            <input
+                                            <input type="date"
                                                 id="primeVendor.endDate"
                                                 name="primeVendor.endDate"
-                                                type="date"
                                                 className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                                 value={form.primeVendor.endDate}
                                                 onChange={handleChange}
@@ -692,9 +686,8 @@ export default function AdminVendors() {
                                 </div>
                                 <div>
                                     <AdminTypography.label htmlFor="filter-start-from">Start Date From</AdminTypography.label>
-                                    <input
+                                    <input type="date"
                                         id="filter-start-from"
-                                        type="date"
                                         className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                         value={startDateFrom}
                                         onChange={handleFilterDateChange(setStartDateFrom)}
@@ -703,9 +696,8 @@ export default function AdminVendors() {
                                 </div>
                                 <div>
                                     <AdminTypography.label htmlFor="filter-start-to">Start Date To</AdminTypography.label>
-                                    <input
+                                    <input type="date"
                                         id="filter-start-to"
-                                        type="date"
                                         className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
                                         value={startDateTo}
                                         onChange={handleFilterDateChange(setStartDateTo)}

@@ -42,7 +42,7 @@ function buildWorkClientRows(workClientDrafts, employeeId) {
   for (const { payload = {}, employerType, employerIndex } of workClientDrafts) {
     const baseMeta = { employerType, employerIndex };
 
-    for (const client of Array.isArray(payload.clientInfo) ? payload.clientInfo : []) {
+    for (const [detailIndex, client] of (Array.isArray(payload.clientInfo) ? payload.clientInfo : []).entries()) {
       const countryCode = client.managerPhoneCountryCode || client.countryCode || null;
       rows.push({
         employee_id: employeeId,
@@ -55,13 +55,13 @@ function buildWorkClientRows(workClientDrafts, employeeId) {
         manager_email: client.managerEmail || null,
         manager_phone: client.managerPhone || null,
         remote_work_location: client.remoteWorkLocation || null,
-        doc_file: client.docFile || null,
+        doc_file: client.docFiles || client.docFile || null,
         country_code: countryCode,
-        meta: { ...baseMeta, managerPhoneCountryCode: countryCode },
+        meta: { ...baseMeta, detailIndex, managerPhoneCountryCode: countryCode },
       });
     }
 
-    for (const vendor of Array.isArray(payload.vendorInfo) ? payload.vendorInfo : []) {
+    for (const [detailIndex, vendor] of (Array.isArray(payload.vendorInfo) ? payload.vendorInfo : []).entries()) {
       const countryCode = vendor.phoneCountryCode || vendor.countryCode || null;
       rows.push({
         employee_id: employeeId,
@@ -74,13 +74,13 @@ function buildWorkClientRows(workClientDrafts, employeeId) {
         email: vendor.email || null,
         phone: vendor.phone || null,
         fein: vendor.finc || null,
-        doc_file: vendor.docFile || null,
+        doc_file: vendor.docFiles || vendor.docFile || null,
         country_code: countryCode,
-        meta: { ...baseMeta, phoneCountryCode: countryCode },
+        meta: { ...baseMeta, detailIndex, phoneCountryCode: countryCode },
       });
     }
 
-    for (const prime of Array.isArray(payload.primeInfo) ? payload.primeInfo : []) {
+    for (const [detailIndex, prime] of (Array.isArray(payload.primeInfo) ? payload.primeInfo : []).entries()) {
       const countryCode = prime.phoneCountryCode || prime.countryCode || null;
       rows.push({
         employee_id: employeeId,
@@ -91,9 +91,9 @@ function buildWorkClientRows(workClientDrafts, employeeId) {
         end_date: prime.endDate || null,
         email: prime.email || null,
         phone: prime.phone || null,
-        doc_file: prime.docFile || null,
+        doc_file: prime.docFiles || prime.docFile || null,
         country_code: countryCode,
-        meta: { ...baseMeta, phoneCountryCode: countryCode },
+        meta: { ...baseMeta, detailIndex, phoneCountryCode: countryCode },
       });
     }
 

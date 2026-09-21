@@ -9,7 +9,12 @@ This document specifies the requirements for the Employee Profile Education scre
 - When a document is uploaded and saved, the system shall prevent the employee from overriding or replacing the document.
 - If the employee wishes to override or update a document after it is saved, the system shall require the employee to submit a request for admin permission.
 - When the admin grants permission, the system shall allow the employee to upload a new version of the document.
-- The system shall allow employees to add multiple education document entries using an Add button.
+- The system shall display five fixed education cards in this order: Master's, Degree, Bachelor's, Class 12th, High School.
+- Every card shall reuse the Degree card fields and styling: Degree, University, Major, Address, Start Date, End Date, and Document Upload.
+- Education cards shall have no Add or Delete control and shall all be visible by default. Certification and Evaluation controls remain independent.
+- At least one entered degree is required to save or submit; the five cards do not make all five qualifications mandatory.
+- Existing ambiguous or duplicate qualifications shall remain accessible within the Degree card, without an Add control.
+- Draft save and submission shall preserve existing record identities, additional documents, and certification associations. Empty new cards shall not create empty database records.
 
 ## 2. Certifications
 - The system shall display a section for Certifications, with fields for Certificate Name, Organization, and Attachment.

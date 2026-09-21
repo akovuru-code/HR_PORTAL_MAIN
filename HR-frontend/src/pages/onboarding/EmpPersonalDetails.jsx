@@ -6,11 +6,44 @@ import { useAdminView } from "../../contexts/AdminViewContext";
 import { useNavigate } from "react-router-dom";
 import EmpTypography from "../../components/emp/EmpTypography";
 import FileUploadField from "../../components/emp/FileUploadField";
+import OnboardDocs from "./OnboardDocs";
 import { useOnboardingPermissions } from "../../hooks/useOnboardingPermissions";
 import axios from 'axios';
 import { saveOnboardingFull, getOnboarding, submitOnboarding, getDraft, registerDocument } from "../../api/onboarding";
+import {
+  COUNTRY_CODES,
+  canEnterSsn,
+  formatSsn,
+  getCountryCode,
+  personalValidationError,
+  splitMobilePhone,
+  splitPhone,
+} from "../../utils/personalInfo";
 //import Kid from "../../../../HR-Backend/src/models/kid";
 EmpTypography._log && EmpTypography._log();
+
+const NATIONALITY_OPTIONS = [
+  { value: "US", label: "US" },
+  { value: "INDIA", label: "INDIA" },
+  { value: "CANADA", label: "CANADA" },
+];
+
+const DL_REGIONS = {
+  US: 'Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming|District of Columbia'.split('|'),
+  INDIA: 'Andhra Pradesh|Arunachal Pradesh|Assam|Bihar|Chhattisgarh|Goa|Gujarat|Haryana|Himachal Pradesh|Jharkhand|Karnataka|Kerala|Madhya Pradesh|Maharashtra|Manipur|Meghalaya|Mizoram|Nagaland|Odisha|Punjab|Rajasthan|Sikkim|Tamil Nadu|Telangana|Tripura|Uttar Pradesh|Uttarakhand|West Bengal|Andaman and Nicobar Islands|Chandigarh|Dadra and Nagar Haveli and Daman and Diu|Delhi|Jammu and Kashmir|Ladakh|Lakshadweep|Puducherry'.split('|'),
+  CANADA: 'Alberta|British Columbia|Manitoba|New Brunswick|Newfoundland and Labrador|Northwest Territories|Nova Scotia|Nunavut|Ontario|Prince Edward Island|Quebec|Saskatchewan|Yukon'.split('|'),
+};
+
+function DlStateSelect({ nationality, value, onChange }) {
+  const regions = DL_REGIONS[nationality] || [];
+  return <select className="w-full border rounded px-3 py-2" value={value} onChange={onChange} disabled={!regions.length}>
+    <option value="">{regions.length ? 'Select issue state/province' : 'Select nationality first'}</option>
+    {regions.map(region => <option key={region} value={region}>{region}</option>)}
+    {value && !regions.includes(value) && <option value={value}>{value} (saved)</option>}
+  </select>;
+}
+
+const isPassportInput = value => /^[A-Za-z0-9]*$/.test(value);
 
 // This is a reusable component for a custom file upload input field.
 function CustomFileUpload() {
@@ -103,27 +136,36 @@ export default function ProfileInfo() {
   const syncFileDocs = async () => {
     const api2 = (await import('axios')).default.create({ baseURL: '/api', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
     const fileFields = [
-      { file: passportFile, name: 'Passport', type: 'passport', expiry: passportExpiry },
+      { file: passportFile, name: 'Passport - current', type: 'passport', expiry: passportExpiry },
+      { file: passportFile2, name: 'Passport - additional/previous pages', type: 'passport_additional', expiry: passportExpiry },
       { file: nationality === 'INDIA' ? panFile : null, name: 'PAN Document', type: 'pan', expiry: null },
       { file: nationality === 'INDIA' ? aadhaarFile : null, name: 'Aadhaar Document', type: 'aadhaar', expiry: null },
       { file: nationality !== 'INDIA' ? visaFile : null, name: 'Visa', type: 'visa', expiry: visaExpiry },
       { file: dlFile, name: 'Driving License', type: 'dl', expiry: dlExpiry },
+      { file: i9File, name: 'Employee I-9', type: 'employee_i9', expiry: null },
+      { file: w4File, name: 'Employee W-4', type: 'employee_w4', expiry: null },
       { file: marriageCertFile, name: 'Marriage Certificate', type: 'marriage_cert', expiry: null },
-      { file: spousePassportFile, name: 'Spouse Passport', type: 'spouse_passport', expiry: spousePassportExpiry },
+      { file: spousePassportFile, name: 'Spouse Passport - current', type: 'spouse_passport', expiry: spousePassportExpiry },
+      { file: spousePassportFile2, name: 'Spouse Passport - additional/previous pages', type: 'spouse_passport_additional', expiry: spousePassportExpiry },
       { file: spouseNationality === 'INDIA' ? spousePanFile : null, name: 'Spouse PAN Document', type: 'spouse_pan', expiry: null },
       { file: spouseNationality === 'INDIA' ? spouseAadhaarFile : null, name: 'Spouse Aadhaar Document', type: 'spouse_aadhaar', expiry: null },
       { file: spouseNationality !== 'INDIA' ? spouseVisaFile : null, name: 'Spouse Visa', type: 'spouse_visa', expiry: spouseVisaExpiry },
       { file: spouseDlFile, name: 'Spouse Driving License', type: 'spouse_dl', expiry: spouseDlExpiry },
+      { file: spouseI9File, name: 'Spouse I-9', type: 'spouse_i9', expiry: null },
+      { file: spouseW4File, name: 'Spouse W-4', type: 'spouse_w4', expiry: null },
       ...kidsList.flatMap((kid, index) => [
-        { file: kid.passportFile, name: `Kid ${index + 1} Passport`, type: `kid_${index}_passport`, expiry: kid.passportExpiry || null },
+        { file: kid.passportFile, name: `Kid ${index + 1} Passport - current`, type: `kid_${index}_passport`, expiry: kid.passportExpiry || null },
+        { file: kid.passportFile2, name: `Kid ${index + 1} Passport - additional/previous pages`, type: `kid_${index}_passport_additional`, expiry: kid.passportExpiry || null },
         { file: kid.nationality === 'INDIA' ? kid.panFile : null, name: `Kid ${index + 1} PAN Document`, type: `kid_${index}_pan`, expiry: null },
         { file: kid.nationality === 'INDIA' ? kid.aadhaarFile : null, name: `Kid ${index + 1} Aadhaar Document`, type: `kid_${index}_aadhaar`, expiry: null },
         { file: kid.nationality !== 'INDIA' ? kid.visaFile : null, name: `Kid ${index + 1} Visa`, type: `kid_${index}`, expiry: kid.visaExpiry || null },
+        { file: kid.i9File, name: `Kid ${index + 1} I-9`, type: `kid_${index}_i9`, expiry: null },
+        { file: kid.w4File, name: `Kid ${index + 1} W-4`, type: `kid_${index}_w4`, expiry: null },
       ]),
     ];
     for (const { file, name, type, expiry } of fileFields) {
       if (file?.url) {
-        registerDocument({ name, url: file.url, filename: file.filename, originalName: file.originalName, document_type: type, fileData: file, expiry: expiry || null }).catch(() => { });
+        registerDocument({ employeeId: targetEmployeeId || user?.employeeId || user?.id, name, url: file.url, filename: file.filename, originalName: file.originalName, document_type: type, fileData: file, expiry: expiry || null }).catch(() => { });
       } else {
         api2.delete(`/documents/type/${encodeURIComponent(type)}`).catch(() => { });
       }
@@ -181,6 +223,9 @@ export default function ProfileInfo() {
         showKidsInfo,
         // File uploads
         passportFile,
+        passportFile2,
+        i9File,
+        w4File,
         visaFile: nationality === 'INDIA' ? panFile : visaFile,
         visaFile2: nationality === 'INDIA' ? aadhaarFile : null,
         dlFile: drivingLicenseOption === 'N/A' ? null : dlFile,
@@ -199,6 +244,9 @@ export default function ProfileInfo() {
         dlState: spouseDrivingLicenseOption === 'NA' ? null : spouseDlState,
         dlExpiry: spouseDrivingLicenseOption === 'NA' ? null : spouseDlExpiry,
         passportFile: spousePassportFile,
+        passportFile2: spousePassportFile2,
+        i9File: spouseI9File,
+        w4File: spouseW4File,
         visaFile: spouseNationality === 'INDIA' ? spousePanFile : spouseVisaFile,
         visaFile2: spouseNationality === 'INDIA' ? spouseAadhaarFile : null,
         dlFile: spouseDrivingLicenseOption === 'NA' ? null : spouseDlFile,
@@ -217,6 +265,16 @@ export default function ProfileInfo() {
 
       // documents: we expect objects like { url, filename, type }
       const docsPayload = Array.isArray(documents) ? documents : [];
+
+      const invalidPersonalField =
+        personalValidationError({ ssn, passportNumber }, 'Employee') ||
+        (spousePayload ? personalValidationError({ ssn: spouseSsn, passportNumber: spousePassportNumber }, 'Spouse') : '') ||
+        kidsPayload.map((kid, index) => personalValidationError({ ssn: kid.ssn, passportNumber: kid.passportNumber }, `Kid ${index + 1}`)).find(Boolean);
+      if (invalidPersonalField) {
+        setValidationError(invalidPersonalField);
+        setSaving(false);
+        return;
+      }
 
       // employeeId: prefer user.employeeId else user's id
       const employeeId = targetEmployeeId || user?.employeeId || user?.id;
@@ -253,6 +311,10 @@ export default function ProfileInfo() {
       passportNumber: "",
       passportExpiry: "",
       passportFile: null,
+      passportFile2: null,
+      ssn: "",
+      i9File: null,
+      w4File: null,
       pan: "",
       aadhaar: "",
       panFile: null,
@@ -306,6 +368,10 @@ export default function ProfileInfo() {
         passportNumber: "",
         passportExpiry: "",
         passportFile: null,
+        passportFile2: null,
+        ssn: "",
+        i9File: null,
+        w4File: null,
         pan: "",
         aadhaar: "",
         panFile: null,
@@ -351,14 +417,14 @@ export default function ProfileInfo() {
   const [presentEmployer, setPresentEmployer] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [phoneCountry, setPhoneCountry] = useState("IN");
+  const [phoneCountry, setPhoneCountry] = useState("US");
   const [whatsappPhone, setWhatsappPhone] = useState("");
-  const [whatsappCode, setWhatsappCode] = useState("+91");
+  const [whatsappCode, setWhatsappCode] = useState("+1");
   const [isWhatsappSame, setIsWhatsappSame] = useState(false);
   const [spousePhone, setSpousePhone] = useState(""); // spouse
-  const [spousePhoneCode, setSpousePhoneCode] = useState("+91");
+  const [spousePhoneCode, setSpousePhoneCode] = useState("+1");
   const [emergencyPhone, setEmergencyPhone] = useState(""); // emergency
-  const [emergencyPhoneCode, setEmergencyPhoneCode] = useState("+91");
+  const [emergencyPhoneCode, setEmergencyPhoneCode] = useState("+1");
   const [dob, setDob] = useState("");
   // Employee detail fields
   const [nationality, setNationality] = useState("");
@@ -412,50 +478,20 @@ export default function ProfileInfo() {
   // Documents metadata collected when files are uploaded/registered
   const [documents, setDocuments] = useState([]);
 
-  //Mobile number Country code  
-  const COUNTRY_CODES = [
-    { value: "IN", code: "+91", short: "IND" },
-    { value: "US", code: "+1", short: "USA" },
-    { value: "CA", code: "+1", short: "CA" },
-    { value: "GB", code: "+44", short: "UK" },
-    { value: "AU", code: "+61", short: "AUS" },
-  ];
-
-  const getCountryCode = (country) =>
-    COUNTRY_CODES.find((item) => item.value === country)?.code || "+91";
-
-  const splitPhone = (value) => {
-    const normalized = String(value || "").replace(/\s+/g, "");
-    const countryCode = COUNTRY_CODES.map(({ code }) => code)
-      .sort((a, b) => b.length - a.length)
-      .find((code) => normalized.startsWith(code));
-
-    return countryCode
-      ? { countryCode, number: normalized.slice(countryCode.length) }
-      : { countryCode: "+91", number: normalized };
-  };
-
-  const splitMobilePhone = (value, savedCountry) => {
-    const normalized = String(value || "").replace(/\s+/g, "");
-    const selectedCountry = COUNTRY_CODES.find((item) => item.value === savedCountry);
-    const country = selectedCountry && normalized.startsWith(selectedCountry.code)
-      ? selectedCountry
-      : COUNTRY_CODES.find((item) => normalized.startsWith(item.code));
-
-    return country
-      ? { country: country.value, number: normalized.slice(country.code.length) }
-      : { country: "IN", number: normalized };
-  };
-
-
   // File upload states for each document category
   const [passportFile, setPassportFile] = useState(null);
+  const [passportFile2, setPassportFile2] = useState(null);
+  const [i9File, setI9File] = useState(null);
+  const [w4File, setW4File] = useState(null);
   const [visaFile, setVisaFile] = useState(null);
   const [panFile, setPanFile] = useState(null);
   const [aadhaarFile, setAadhaarFile] = useState(null);
   const [dlFile, setDlFile] = useState(null);
   const [marriageCertFile, setMarriageCertFile] = useState(null);
   const [spousePassportFile, setSpousePassportFile] = useState(null);
+  const [spousePassportFile2, setSpousePassportFile2] = useState(null);
+  const [spouseI9File, setSpouseI9File] = useState(null);
+  const [spouseW4File, setSpouseW4File] = useState(null);
   const [spouseVisaFile, setSpouseVisaFile] = useState(null);
   const [spousePanFile, setSpousePanFile] = useState(null);
   const [spouseAadhaarFile, setSpouseAadhaarFile] = useState(null);
@@ -518,7 +554,7 @@ export default function ProfileInfo() {
         setNationality(payload.nationality || "");
         setPassportNumber(payload.passportNumber || payload.passportNumber || "");
         setPassportExpiry(toDate(payload.passportExpiry || payload.passportExpire));
-        setSsn(payload.ssn || "");
+        setSsn(formatSsn(payload.ssn || ""));
         setSin(payload.sin || "");
         setNi(payload.ni || "");
         setTfn(payload.tfn || "");
@@ -564,6 +600,9 @@ export default function ProfileInfo() {
         setEmergencyRelationship(payload.emergencyRelationship || "");
         // File uploads
         if (payload.passportFile) setPassportFile(payload.passportFile);
+        if (payload.passportFile2) setPassportFile2(payload.passportFile2);
+        if (payload.i9File) setI9File(payload.i9File);
+        if (payload.w4File) setW4File(payload.w4File);
         if (payload.nationality === "INDIA") {
           setPanFile(payload.visaFile || null);
           setAadhaarFile(payload.visaFile2 || null);
@@ -605,7 +644,7 @@ export default function ProfileInfo() {
           setSpousePassportNumber(spouseRaw.passportNumber || spouseRaw.passport_number || "");
           setSpousePassportExpiry(toDate(spouseRaw.passportExpiry || spouseRaw.passport_expiry));
           setSpouseOccupation(spouseRaw.occupation || "");
-          setSpouseSsn(spouseRaw.ssn || "");
+          setSpouseSsn(formatSsn(spouseRaw.ssn || ""));
           setSpouseSin(spouseRaw.sin || "");
           setSpouseNi(spouseRaw.ni || "");
           setSpouseTfn(spouseRaw.tfn || "");
@@ -619,6 +658,9 @@ export default function ProfileInfo() {
           setSpouseDlState(spouseRaw.dlState || spouseRaw.dl_state || "");
           setSpouseDlExpiry(toDate(spouseRaw.dlExpiry || spouseRaw.dl_expiry));
           if (spouseRaw.passportFile) setSpousePassportFile(spouseRaw.passportFile);
+          if (spouseRaw.passportFile2) setSpousePassportFile2(spouseRaw.passportFile2);
+          if (spouseRaw.i9File) setSpouseI9File(spouseRaw.i9File);
+          if (spouseRaw.w4File) setSpouseW4File(spouseRaw.w4File);
           if (spouseRaw.nationality === "INDIA") {
             setSpousePanFile(spouseRaw.visaFile || null);
             setSpouseAadhaarFile(spouseRaw.visaFile2 || null);
@@ -642,7 +684,10 @@ export default function ProfileInfo() {
             passportNumber: k.passportNumber || k.passport_number || "",
             passportExpiry: toDate(k.passportExpiry || k.passport_expiry),
             passportFile: k.passportFile || null,
-            ssn: k.ssn || "",
+            passportFile2: k.passportFile2 || null,
+            i9File: k.i9File || null,
+            w4File: k.w4File || null,
+            ssn: formatSsn(k.ssn || ""),
             sin: k.sin || "",
             ni: k.ni || "",
             tfn: k.tfn || "",
@@ -716,9 +761,9 @@ export default function ProfileInfo() {
                   onChange={(e) => setPhoneCountry(e.target.value)}
                   className="border rounded-0.5 px-0.1 py-0.1 bg-white"
                 >
-                  {COUNTRY_CODES.map((country, index) => (
+                  {COUNTRY_CODES.map((country) => (
                     <option key={country.value} value={country.value}>
-                      {country.short} ({country.code})
+                      {country.label} ({country.code})
                     </option>
                   ))}
                 </select>
@@ -764,9 +809,9 @@ export default function ProfileInfo() {
                     onChange={(e) => setWhatsappCode(e.target.value)}
                     className="border rounded-l px-0.1 py-0.1 bg-white"
                   >
-                    {COUNTRY_CODES.map((country, index) => (
-                      <option key={index} value={country.code}>
-                        {country.short} ({country.code})
+                    {COUNTRY_CODES.map((country) => (
+                      <option key={country.value} value={country.code}>
+                        {country.label} ({country.code})
                       </option>
                     ))}
                   </select>
@@ -792,29 +837,13 @@ export default function ProfileInfo() {
             </div>
             <div>
               <EmpTypography.label>Date of Birth<span className="text-red-500">*</span></EmpTypography.label>
-              <input
-                type="date"
+              <input type="date"
                 value={dob}
                 min="1900-01-01"
                 max="9999-12-31"
-                onInput={(e) => {
-                  const value = e.target.value;
-                  const parts = value.split("-");
-
-                  if (parts[0] && parts[0].length > 4) {
-                    parts[0] = parts[0].slice(0, 4);
-                    e.target.value = parts.join("-");
-                  }
-                }}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  const year = value.split("-")[0];
-
-                  if (year.length <= 4) {
-                    setDob(value);
-                  }
-                }}
+                onChange={(e) => setDob(e.target.value)}
                 className="w-full border rounded px-3 py-2"
+                disabled={onboardingSubmitted && !canEdit}
               />
             </div>
             <div className="md:col-span-3">
@@ -947,31 +976,28 @@ export default function ProfileInfo() {
               >
 
                 <option value="">Select Nationality</option>
-                <option value="US">US</option>
-                <option value="UK">UK</option>
-                <option value="INDIA">INDIA</option>
-                <option value="AUSTRALIA">AUSTRALIA</option>
-                <option value="CANADA">CANADA</option>
+                {NATIONALITY_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
 
               <EmpTypography.label>Passport number<span className="text-red-500">*</span></EmpTypography.label>
-              <input className="w-full border rounded px-3 py-2" value={passportNumber} onChange={e => setPassportNumber(e.target.value)} />
+              <input className="w-full border rounded px-3 py-2" value={passportNumber} onChange={e => {
+                if (isPassportInput(e.target.value)) setPassportNumber(e.target.value);
+              }} />
 
               <EmpTypography.label>Passport Expiry Date<span className="text-red-500">*</span></EmpTypography.label>
-              <input type="date" value={passportExpiry} min="1900-01-01" max="9999-12-31" onInput={(e) => {
-                const value = e.target.value; const parts = value.split("-");
-                if (parts[0] && parts[0].length > 4) {
-                  parts[0] = parts[0].slice(0, 4);
-                  e.target.value = parts.join("-");
-                }
-              }}
-                onChange={(e) => {
-                  const value = e.target.value; const year = value.split("-")[0];
-                  if (year.length <= 4) { setPassportExpiry(value); }
-                }}
+              <input type="date"
+                value={passportExpiry}
+                min="1900-01-01"
+                max="9999-12-31"
+                onChange={(e) => setPassportExpiry(e.target.value)}
                 className="w-full border rounded px-3 py-2"
+                disabled={onboardingSubmitted && !canEdit}
               />
-              <FileUploadField label="Document Upload:" employeeId={user?.employeeId || user?.id} category="passport" documentName="Passport" value={passportFile} onChange={setPassportFile} disabled={onboardingSubmitted && !canEdit} />
+              <p className="text-xs text-gray-600">Upload all passport documents/pages, including old or previous passports.</p>
+              <FileUploadField label="Passport Document Upload 1:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="passport" documentName="Passport" value={passportFile} onChange={setPassportFile} disabled={onboardingSubmitted && !canEdit} />
+              <FileUploadField label="Passport Document Upload 2:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="passport_additional" documentName="Passport Additional Pages" value={passportFile2} onChange={setPassportFile2} disabled={onboardingSubmitted && !canEdit} />
             </div>
 
             <div className="space-y-2">
@@ -981,7 +1007,11 @@ export default function ProfileInfo() {
                   <input
                     className="w-full border rounded px-3 py-2"
                     value={ssn}
-                    onChange={(e) => setSsn(e.target.value)}
+                    maxLength={11}
+                    inputMode="numeric"
+                    onChange={(e) => {
+                      if (canEnterSsn(e.target.value)) setSsn(formatSsn(e.target.value));
+                    }}
                   />
                 </>
               )}
@@ -1048,10 +1078,8 @@ export default function ProfileInfo() {
                 {nationality === "US" && (
                   <>
                     <option>H1B</option>
-                    <option>L1</option>
                     <option>F1</option>
-                    <option>B1/B2</option>
-                    <option>J1</option>
+                    <option>EAD</option>
                     <option>H4</option>
                     <option>Green Card</option>
                     <option>US Citizen</option>
@@ -1101,29 +1129,13 @@ export default function ProfileInfo() {
                     Visa Expiry date<span className="text-red-500">*</span>
                   </EmpTypography.label>
 
-                  <input
-                    type="date"
+                  <input type="date"
                     value={visaExpiry}
                     min="1900-01-01"
                     max="9999-12-31"
-                    onInput={(e) => {
-                      const value = e.target.value;
-                      const parts = value.split("-");
-
-                      if (parts[0] && parts[0].length > 4) {
-                        parts[0] = parts[0].slice(0, 4);
-                        e.target.value = parts.join("-");
-                      }
-                    }}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      const year = value.split("-")[0];
-
-                      if (year.length <= 4) {
-                        setVisaExpiry(value);
-                      }
-                    }}
+                    onChange={(e) => setVisaExpiry(e.target.value)}
                     className="w-full border rounded px-3 py-2"
+                    disabled={onboardingSubmitted && !canEdit}
                   />
 
                 </>
@@ -1135,7 +1147,7 @@ export default function ProfileInfo() {
                   <FileUploadField label="Aadhaar Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="aadhaar" documentName="Aadhaar Document" value={aadhaarFile} onChange={setAadhaarFile} disabled={onboardingSubmitted && !canEdit} />
                 </>
               ) : (
-                <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="visa" documentName="Visa" value={visaFile} onChange={setVisaFile} disabled={onboardingSubmitted && !canEdit} />
+                <FileUploadField label="Visa Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="visa" documentName="Visa" value={visaFile} onChange={setVisaFile} disabled={onboardingSubmitted && !canEdit} />
               )}
             </div>
 
@@ -1180,33 +1192,17 @@ export default function ProfileInfo() {
               {drivingLicenseOption !== "N/A" && (
                 <>
                   <EmpTypography.label>DL Issue State</EmpTypography.label>
-                  <input className="w-full border rounded px-3 py-2" value={dlState} onChange={e => setDlState(e.target.value)} />
+                  <DlStateSelect nationality={nationality} value={dlState} onChange={e => setDlState(e.target.value)} />
                   <EmpTypography.label>DL Expiry date<span className="text-red-500">*</span></EmpTypography.label>
-                  <input
-                    type="date"
+                  <input type="date"
                     value={dlExpiry}
                     min="1900-01-01"
                     max="9999-12-31"
-                    onInput={(e) => {
-                      const value = e.target.value;
-                      const parts = value.split("-");
-
-                      if (parts[0] && parts[0].length > 4) {
-                        parts[0] = parts[0].slice(0, 4);
-                        e.target.value = parts.join("-");
-                      }
-                    }}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      const year = value.split("-")[0];
-
-                      if (year.length <= 4) {
-                        setDlExpiry(value);
-                      }
-                    }}
+                    onChange={(e) => setDlExpiry(e.target.value)}
                     className="w-full border rounded px-3 py-2"
+                    disabled={onboardingSubmitted && !canEdit}
                   />
-                  <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="dl" documentName="Driving License" value={dlFile} onChange={setDlFile} disabled={onboardingSubmitted && !canEdit} />
+                  <FileUploadField label="DL Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="dl" documentName="Driving License" value={dlFile} onChange={setDlFile} disabled={onboardingSubmitted && !canEdit} />
                 </>
               )}
             </div>
@@ -1245,9 +1241,9 @@ export default function ProfileInfo() {
                     onChange={(e) => setSpousePhoneCode(e.target.value)}
                     className="border rounded-l px-2 py-2 bg-white"
                   >
-                    {COUNTRY_CODES.map((country, index) => (
-                      <option key={index} value={country.code}>
-                        {country.short} ({country.code})
+                    {COUNTRY_CODES.map((country) => (
+                      <option key={country.value} value={country.code}>
+                        {country.label} ({country.code})
                       </option>
                     ))}
                   </select>
@@ -1275,32 +1271,13 @@ export default function ProfileInfo() {
                   Date of Birth<span className="text-red-500">*</span>
                 </label>
 
-                <input
-                  type="date"
+                <input type="date"
                   value={spouse.dob}
                   min="1900-01-01"
                   max="9999-12-31"
-                  onInput={(e) => {
-                    const value = e.target.value;
-                    const parts = value.split("-");
-
-                    if (parts[0] && parts[0].length > 4) {
-                      parts[0] = parts[0].slice(0, 4);
-                      e.target.value = parts.join("-");
-                    }
-                  }}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    const year = value.split("-")[0];
-
-                    if (year.length <= 4) {
-                      setSpouse((s) => ({
-                        ...s,
-                        dob: value,
-                      }));
-                    }
-                  }}
+                  onChange={(e) => setSpouse((s) => ({ ...s, dob: e.target.value }))}
                   className="w-full border rounded px-3 py-2"
+                  disabled={onboardingSubmitted && !canEdit}
                 />
               </div>
               {/* Checkbox above address fields */}
@@ -1361,35 +1338,34 @@ export default function ProfileInfo() {
 
                 >
                   <option value="">Select Nationality</option>
-                  <option value="US">US</option>
-                  <option value="UK">UK</option>
-                  <option value="INDIA">INDIA</option>
-                  <option value="AUSTRALIA">AUSTRALIA</option>
-                  <option value="CANADA">CANADA</option>
+                  {NATIONALITY_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
 
                 <label className="block text-sm font-medium">Passport number<span className="text-red-500">*</span></label>
-                <input className="w-full border rounded px-3 py-2" value={spousePassportNumber} onChange={e => setSpousePassportNumber(e.target.value)} />
+                <input className="w-full border rounded px-3 py-2" value={spousePassportNumber} onChange={e => {
+                  if (isPassportInput(e.target.value)) setSpousePassportNumber(e.target.value);
+                }} />
 
                 <label className="block text-sm font-medium">Passport Expiry Date<span className="text-red-500">*</span></label>
-                <input type="date" value={spousePassportExpiry} min="1900-01-01" max="9999-12-31" onInput={(e) => {
-                  const value = e.target.value; const parts = value.split("-");
-                  if (parts[0] && parts[0].length > 4) {
-                    parts[0] = parts[0].slice(0, 4);
-                    e.target.value = parts.join("-");
-                  }
-                }}
-                  onChange={(e) => {
-                    const value = e.target.value; const year = value.split("-")[0];
-                    if (year.length <= 4) { setSpousePassportExpiry(value); }
-                  }}
+                <input type="date"
+                  value={spousePassportExpiry}
+                  min="1900-01-01"
+                  max="9999-12-31"
+                  onChange={(e) => setSpousePassportExpiry(e.target.value)}
                   className="w-full border rounded px-3 py-2"
+                  disabled={onboardingSubmitted && !canEdit}
                 />
+                <p className="text-xs text-gray-600">Upload all passport documents/pages, including old or previous passports.</p>
+
 
                 <label className="block text-sm font-medium">Occupation:</label>
                 <input className="w-full border rounded px-3 py-2" value={spouseOccupation} onChange={e => setSpouseOccupation(e.target.value)} />
 
-                <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_passport" documentName="Spouse Passport" value={spousePassportFile} onChange={setSpousePassportFile} disabled={onboardingSubmitted && !canEdit} />
+
+                <FileUploadField label="Passport Document Upload 1:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_passport" documentName="Spouse Passport" value={spousePassportFile} onChange={setSpousePassportFile} disabled={onboardingSubmitted && !canEdit} />
+                <FileUploadField label="Passport Document Upload 2:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_passport_additional" documentName="Spouse Passport Additional Pages" value={spousePassportFile2} onChange={setSpousePassportFile2} disabled={onboardingSubmitted && !canEdit} />
               </div>
 
 
@@ -1400,7 +1376,11 @@ export default function ProfileInfo() {
                     <input
                       className="w-full border rounded px-3 py-2"
                       value={spouseSsn}
-                      onChange={(e) => setSpouseSsn(e.target.value)}
+                      maxLength={11}
+                      inputMode="numeric"
+                      onChange={(e) => {
+                        if (canEnterSsn(e.target.value)) setSpouseSsn(formatSsn(e.target.value));
+                      }}
                     />
                   </>
                 )}
@@ -1467,10 +1447,8 @@ export default function ProfileInfo() {
                   {spouseNationality === "US" && (
                     <>
                       <option>H1B</option>
-                      <option>L1</option>
                       <option>F1</option>
-                      <option>B1/B2</option>
-                      <option>J1</option>
+                      <option>EAD</option>
                       <option>H4</option>
                       <option>Green Card</option>
                       <option>US Citizen</option>
@@ -1519,29 +1497,13 @@ export default function ProfileInfo() {
                       Visa Expiry date<span className="text-red-500">*</span>
                     </label>
 
-                    <input
-                      type="date"
+                    <input type="date"
                       value={spouseVisaExpiry}
                       min="1900-01-01"
                       max="9999-12-31"
-                      onInput={(e) => {
-                        const value = e.target.value;
-                        const parts = value.split("-");
-
-                        if (parts[0] && parts[0].length > 4) {
-                          parts[0] = parts[0].slice(0, 4);
-                          e.target.value = parts.join("-");
-                        }
-                      }}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        const year = value.split("-")[0];
-
-                        if (year.length <= 4) {
-                          setSpouseVisaExpiry(value);
-                        }
-                      }}
+                      onChange={(e) => setSpouseVisaExpiry(e.target.value)}
                       className="w-full border rounded px-3 py-2"
+                      disabled={onboardingSubmitted && !canEdit}
                     />
 
                   </>
@@ -1553,7 +1515,7 @@ export default function ProfileInfo() {
                     <FileUploadField label="Aadhaar Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_aadhaar" documentName="Spouse Aadhaar Document" value={spouseAadhaarFile} onChange={setSpouseAadhaarFile} disabled={onboardingSubmitted && !canEdit} />
                   </>
                 ) : (
-                  <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_visa" documentName="Spouse Visa" value={spouseVisaFile} onChange={setSpouseVisaFile} disabled={onboardingSubmitted && !canEdit} />
+                  <FileUploadField label="Visa Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_visa" documentName="Spouse Visa" value={spouseVisaFile} onChange={setSpouseVisaFile} disabled={onboardingSubmitted && !canEdit} />
                 )}
               </div>
 
@@ -1597,29 +1559,18 @@ export default function ProfileInfo() {
                 {spouseDrivingLicenseOption !== "NA" && (
                   <>
                     <label className="block text-sm font-medium">DL Issue State</label>
-                    <input className="w-full border rounded px-3 py-2" value={spouseDlState} onChange={e => setSpouseDlState(e.target.value)} />
+                    <DlStateSelect nationality={spouseNationality} value={spouseDlState} onChange={e => setSpouseDlState(e.target.value)} />
                     <label className="block text-sm font-medium">DL Expiry date<span className="text-red-500">*</span></label>
-                    <input type="date" value={spouseDlExpiry} min="1900-01-01" max="9999-12-31"
-                      onInput={(e) => {
-                        const value = e.target.value;
-                        const parts = value.split("-");
-                        if (parts[0] && parts[0].length > 4) {
-                          parts[0] = parts[0].slice(0, 4);
-                          e.target.value = parts.join("-");
-                        }
-                      }}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        const year = value.split("-")[0];
-
-                        if (year.length <= 4) {
-                          setSpouseDlExpiry(value);
-                        }
-                      }}
+                    <input type="date"
+                      value={spouseDlExpiry}
+                      min="1900-01-01"
+                      max="9999-12-31"
+                      onChange={(e) => setSpouseDlExpiry(e.target.value)}
                       className="w-full border rounded px-3 py-2"
+                      disabled={onboardingSubmitted && !canEdit}
                     />
 
-                    <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_dl" documentName="Spouse Driving License" value={spouseDlFile} onChange={setSpouseDlFile} disabled={onboardingSubmitted && !canEdit} />
+                    <FileUploadField label="DL Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="spouse_dl" documentName="Spouse Driving License" value={spouseDlFile} onChange={setSpouseDlFile} disabled={onboardingSubmitted && !canEdit} />
                   </>
                 )}
               </div>
@@ -1665,28 +1616,13 @@ export default function ProfileInfo() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">Date of Birth <span className="text-red-500">*</span></label>
-                        <input
-                          type="date"
+                        <input type="date"
                           className="w-full border rounded px-3 py-2"
                           value={kid.dob}
                           min="1900-01-01"
                           max="9999-12-31"
-                          onInput={(e) => {
-                            const value = e.target.value;
-                            const parts = value.split("-");
-
-                            if (parts[0] && parts[0].length > 4) {
-                              parts[0] = parts[0].slice(0, 4);
-                              e.target.value = parts.join("-");
-                            }
-                          }}
                           onChange={(e) => {
-                            const value = e.target.value;
-                            const year = value.split("-")[0];
-
-                            if (year.length <= 4) {
-                              updateKid(idx, "dob", value);
-                            }
+                            updateKid(idx, "dob", e.target.value);
                           }}
                         />
                       </div>
@@ -1758,55 +1694,50 @@ export default function ProfileInfo() {
                         >
 
                           <option value="">Select Nationality</option>
-                          <option value="US">US</option>
-                          <option value="UK">UK</option>
-                          <option value="INDIA">INDIA</option>
-                          <option value="AUSTRALIA">AUSTRALIA</option>
-                          <option value="CANADA">CANADA</option>
+                          {NATIONALITY_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
 
                         </select>
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">Passport Number<span className="text-red-500">*</span></label>
-                        <input className="w-full border rounded px-3 py-2" value={kid.passportNumber} onChange={e => updateKid(idx, "passportNumber", e.target.value)} />
+                        <input className="w-full border rounded px-3 py-2" value={kid.passportNumber} onChange={e => {
+                          if (isPassportInput(e.target.value)) updateKid(idx, "passportNumber", e.target.value);
+                        }} />
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">
                           Passport Expiry Date<span className="text-red-500">*</span>
                         </label>
 
-                        <input
-                          type="date"
+                        <input type="date"
                           className="w-full border rounded px-3 py-2"
                           value={kid.passportExpiry}
                           min="1900-01-01"
                           max="9999-12-31"
-                          onInput={(e) => {
-                            const value = e.target.value;
-                            const parts = value.split("-");
-
-                            if (parts[0] && parts[0].length > 4) {
-                              parts[0] = parts[0].slice(0, 4);
-                              e.target.value = parts.join("-");
-                            }
-                          }}
                           onChange={(e) => {
-                            const value = e.target.value;
-                            const year = value.split("-")[0];
-
-                            if (year.length <= 4) {
-                              updateKid(idx, "passportExpiry", value);
-                            }
+                            updateKid(idx, "passportExpiry", e.target.value);
                           }}
                         />
                       </div>
                       <FileUploadField
-                        label="Passport Document Upload:"
+                        label="Passport Document Upload 1:"
                         employeeId={targetEmployeeId || user?.employeeId || user?.id}
                         category={`kid_${idx}_passport`}
                         documentName={`Kid ${idx + 1} Passport`}
                         value={kid.passportFile || null}
                         onChange={(file) => updateKid(idx, "passportFile", file)}
+                        disabled={onboardingSubmitted && !canEdit}
+                      />
+                      <div className="md:col-span-3 text-xs text-gray-600">Upload all passport documents/pages, including old or previous passports.</div>
+                      <FileUploadField
+                        label="Passport Document Upload 2:"
+                        employeeId={targetEmployeeId || user?.employeeId || user?.id}
+                        category={`kid_${idx}_passport_additional`}
+                        documentName={`Kid ${idx + 1} Passport Additional Pages`}
+                        value={kid.passportFile2 || null}
+                        onChange={(file) => updateKid(idx, "passportFile2", file)}
                         disabled={onboardingSubmitted && !canEdit}
                       />
                       {/* US */}
@@ -1818,7 +1749,11 @@ export default function ProfileInfo() {
                           <input
                             className="w-full border rounded px-3 py-2"
                             value={kid.ssn || ""}
-                            onChange={(e) => updateKid(idx, "ssn", e.target.value)}
+                            maxLength={11}
+                            inputMode="numeric"
+                            onChange={(e) => {
+                              if (canEnterSsn(e.target.value)) updateKid(idx, "ssn", formatSsn(e.target.value));
+                            }}
                           />
                         </div>
                       )}
@@ -1904,10 +1839,8 @@ export default function ProfileInfo() {
                           {kid.nationality === "US" && (
                             <>
                               <option>H1B</option>
-                              <option>L1</option>
                               <option>F1</option>
-                              <option>B1/B2</option>
-                              <option>J1</option>
+                              <option>EAD</option>
                               <option>H4</option>
                               <option>Green Card</option>
                               <option>US Citizen</option>
@@ -1954,28 +1887,13 @@ export default function ProfileInfo() {
                           Visa Expiry Date<span className="text-red-500">*</span>
                         </label>
 
-                        <input
-                          type="date"
+                        <input type="date"
                           className="w-full border rounded px-3 py-2"
                           value={kid.visaExpiry}
                           min="1900-01-01"
                           max="9999-12-31"
-                          onInput={(e) => {
-                            const value = e.target.value;
-                            const parts = value.split("-");
-
-                            if (parts[0] && parts[0].length > 4) {
-                              parts[0] = parts[0].slice(0, 4);
-                              e.target.value = parts.join("-");
-                            }
-                          }}
                           onChange={(e) => {
-                            const value = e.target.value;
-                            const year = value.split("-")[0];
-
-                            if (year.length <= 4) {
-                              updateKid(idx, "visaExpiry", value);
-                            }
+                            updateKid(idx, "visaExpiry", e.target.value);
                           }}
                         />
                       </div>
@@ -1986,7 +1904,7 @@ export default function ProfileInfo() {
                           <FileUploadField label="Aadhaar Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category={`kid_${idx}_aadhaar`} documentName={`Kid ${idx + 1} Aadhaar Document`} value={kid.aadhaarFile || null} onChange={(file) => updateKid(idx, "aadhaarFile", file)} disabled={onboardingSubmitted && !canEdit} />
                         </>
                       ) : (
-                        <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category={`kid_${idx}`} documentName={`Kid ${idx + 1} Visa`} value={kid.visaFile || null} onChange={(file) => updateKid(idx, "visaFile", file)} disabled={onboardingSubmitted && !canEdit} />
+                        <FileUploadField label="Visa Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category={`kid_${idx}`} documentName={`Kid ${idx + 1} Visa`} value={kid.visaFile || null} onChange={(file) => updateKid(idx, "visaFile", file)} disabled={onboardingSubmitted && !canEdit} />
                       )}
                     </div>
 
@@ -2016,6 +1934,26 @@ export default function ProfileInfo() {
           )}
         </>
 
+
+        <section className="mt-4">
+          <EmpTypography.h2 className="mb-3 font-bold">Onboard Docs</EmpTypography.h2>
+          <OnboardDocs
+            embedded
+            visaType={visaType}
+            i9File={i9File}
+            setI9File={setI9File}
+            w4File={w4File}
+            setW4File={setW4File}
+            hasSpouse={maritalStatus === "Married"}
+            spouseI9File={spouseI9File}
+            setSpouseI9File={setSpouseI9File}
+            spouseW4File={spouseW4File}
+            setSpouseW4File={setSpouseW4File}
+            spouseVisaType={spouseVisaType}
+            kids={kidsList}
+            setKidDocument={updateKid}
+          />
+        </section>
 
         {/* Emergency Contact Info */}
         <div className="bg-white border rounded-lg p-4 shadow mt-4">
@@ -2048,9 +1986,9 @@ export default function ProfileInfo() {
                   onChange={(e) => setEmergencyPhoneCode(e.target.value)}
                   className="border rounded-l px-2 py-2 bg-white"
                 >
-                  {COUNTRY_CODES.map((country, index) => (
-                    <option key={index} value={country.code}>
-                      {country.short} ({country.code})
+                  {COUNTRY_CODES.map((country) => (
+                    <option key={country.value} value={country.code}>
+                      {country.label} ({country.code})
                     </option>
                   ))}
                 </select>
@@ -2146,6 +2084,9 @@ export default function ProfileInfo() {
                     emergencyRelationship: emergencyRelationship.trim() || null,
                     showKidsInfo,
                     passportFile,
+                    passportFile2,
+                    i9File,
+                    w4File,
                     visaFile: nationality === 'INDIA' ? panFile : visaFile,
                     visaFile2: nationality === 'INDIA' ? aadhaarFile : null,
                     dlFile: drivingLicenseOption === 'N/A' ? null : dlFile,
@@ -2162,6 +2103,9 @@ export default function ProfileInfo() {
                     dlState: spouseDrivingLicenseOption === 'NA' ? null : spouseDlState,
                     dlExpiry: spouseDrivingLicenseOption === 'NA' ? null : spouseDlExpiry,
                     passportFile: spousePassportFile,
+                    passportFile2: spousePassportFile2,
+                    i9File: spouseI9File,
+                    w4File: spouseW4File,
                     visaFile: spouseNationality === 'INDIA' ? spousePanFile : spouseVisaFile,
                     visaFile2: spouseNationality === 'INDIA' ? spouseAadhaarFile : null,
                     dlFile: spouseDrivingLicenseOption === 'NA' ? null : spouseDlFile,
@@ -2176,6 +2120,16 @@ export default function ProfileInfo() {
                       }))
                     : [];
                   const docsPayload = Array.isArray(documents) ? documents : [];
+                  const invalidPersonalField =
+                    personalValidationError({ ssn, passportNumber }, 'Employee') ||
+                    (spousePayload ? personalValidationError({ ssn: spouseSsn, passportNumber: spousePassportNumber }, 'Spouse') : '') ||
+                    kidsPayload.map((kid, index) => personalValidationError({ ssn: kid.ssn, passportNumber: kid.passportNumber }, `Kid ${index + 1}`)).find(Boolean);
+                  if (invalidPersonalField) {
+                    setValidationError(invalidPersonalField);
+                    setShowConfirmModal(false);
+                    return;
+                  }
+                  setValidationError("");
                   const employeeId = targetEmployeeId || user?.employeeId || user?.id;
                   try {
                     if (!employeeId) throw new Error('Missing employeeId in session');

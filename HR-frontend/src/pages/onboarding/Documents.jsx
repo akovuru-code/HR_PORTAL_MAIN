@@ -84,28 +84,38 @@ const CATEGORY_MAP = {
   visa: ["visa", "spouse_visa"],
   personal: [
     "passport",
+    "passport_additional",
     "spouse_passport",
+    "spouse_passport_additional",
     "dl",
     "spouse_dl",
     "marriage_cert",
+    "pan",
+    "aadhaar",
+    "spouse_pan",
+    "spouse_aadhaar",
     "personal-info",  // legacy source tag from buildPersonalInfoDocs
     "kid_",           // prefix — matched with startsWith
   ],
   work: [
     "present_employer_",  // prefix
     "previous_employer_", // prefix
+    "work_",              // prefix
     "onboard_doc_",       // prefix
   ],
 };
 
-// Returns true when the doc's source matches the selected category
+function inferredCategory(doc) {
+  if (doc.categoryType) return doc.categoryType;
+  const source = (doc.source || '').toLowerCase();
+  if (source.startsWith('present_employer_') || source.startsWith('previous_employer_') || source.startsWith('work_') || source.startsWith('onboard_doc_')) return 'work';
+  if (source.includes('visa') || source.endsWith('_i9') || source.endsWith('_w4') || source.startsWith('onboard_kid_')) return 'visa';
+  return 'personal';
+}
+
+// Returns true when the document's selected or inferred category matches.
 function matchesCategory(doc, category) {
-  if (!category) return true; // show all when no filter selected
-  const terms = CATEGORY_MAP[category] || [];
-  const src = (doc.source || "").toLowerCase();
-  return terms.some((t) =>
-    t.endsWith("_") ? src.startsWith(t) : src === t
-  );
+  return !category || inferredCategory(doc) === category;
 }
 
 export default function ProfileDocuments() {
@@ -157,12 +167,13 @@ export default function ProfileDocuments() {
   } = useOnboardingPermissions(pageKey, 'documents');
   const { user } = useAuth();
   const { targetEmployeeId } = useAdminView() || {};
-  const isAdmin = user?.role === "admin";
+  const isAdmin = ['admin', 'root_admin', 'hr'].includes(String(user?.accountType || user?.role || '').toLowerCase());
   const [saving, setSaving] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [validationError, setValidationError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [uploadingDocId, setUploadingDocId] = useState(null);
+  const [uploadingCategoryFile, setUploadingCategoryFile] = useState(false);
 
   const {
     docs,
@@ -193,6 +204,7 @@ export default function ProfileDocuments() {
           modifiedBy: d.modifiedBy || "",
           file: d.fileData || (d.url ? { url: d.url, originalName: d.originalName, filename: d.filename } : null),
           source: d.document_type || "user-added",
+          categoryType: d.fileData?.categoryType || null,
           readOnly: false,
         }));
 
@@ -287,6 +299,52 @@ export default function ProfileDocuments() {
     setFilterResult("Filtered documents based on category and file.");
   };
 
+  const handleCategoryUpload = async (file) => {
+    const employeeId = targetEmployeeId || user?.employeeId || user?.id;
+    if (!file || !employeeId) return;
+    if (!filterCategory) {
+      alert('Choose Personal, Work, or Visa before uploading a document.');
+      return;
+    }
+    setUploadingCategoryFile(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('category', `documents_${filterCategory}`);
+      const uploadRes = await api.post(`/local-upload/${employeeId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const fileInfo = uploadRes.data.file;
+      const registered = await registerDocument({
+        employeeId,
+        name: fileInfo.originalName || fileInfo.filename || 'Document',
+        url: fileInfo.url,
+        filename: fileInfo.filename,
+        originalName: fileInfo.originalName,
+        document_type: `employee_${filterCategory}_${Date.now()}`,
+        fileData: { ...fileInfo, categoryType: filterCategory },
+      });
+      const document = registered?.data?.document;
+      if (document) {
+        addDoc({
+          id: `doc-${document.document_id}`,
+          name: document.name,
+          expiry: document.expiry || '',
+          modifiedBy: document.modifiedBy || '',
+          file: document.fileData,
+          source: document.document_type,
+          categoryType: filterCategory,
+          readOnly: false,
+        });
+      }
+      setFilterResult(`Uploaded under ${filterCategory.charAt(0).toUpperCase() + filterCategory.slice(1)}.`);
+    } catch (err) {
+      alert('Upload failed: ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setUploadingCategoryFile(false);
+    }
+  };
+
   const handleDownload = (doc) => {
     if (doc.file?.url) {
       window.open(doc.file.url, "_blank");
@@ -323,6 +381,7 @@ export default function ProfileDocuments() {
       for (const d of userDocs) {
         if (d.file?.url) {
           registerDocument({
+            employeeId,
             name: d.name || d.file.originalName || 'Document',
             url: d.file.url,
             filename: d.file.filename,
@@ -353,15 +412,25 @@ export default function ProfileDocuments() {
             <option value="work">Work</option>
             <option value="visa">Visa</option>
           </select>
-          <input type="file" className="text-xs" onChange={e => setFilterFile(e.target.files[0])} />
-          {/* <button
+          <input
+            type="file"
+            className="text-xs"
+            disabled={uploadingCategoryFile || (onboardingSubmitted && !canEdit)}
+            onChange={event => {
+              const file = event.target.files?.[0];
+              if (file) handleCategoryUpload(file);
+              event.target.value = '';
+            }}
+          />
+          <button
             className="px-4 py-1 bg-blue-100 text-blue-900 rounded-lg text-sm font-semibold transition duration-150 hover:bg-blue-200 active:scale-95 active:bg-blue-300 focus:outline-none border border-blue-200"
             style={{ minWidth: 80 }}
             onClick={handleFilter}
           >
             Result
-          </button> */}
+          </button>
         </div>
+        {uploadingCategoryFile && <div className="mt-2 text-xs text-gray-700">Uploading document...</div>}
         {filterResult && <div className="mt-2 text-xs text-gray-700">{filterResult}</div>}
       </div>
 

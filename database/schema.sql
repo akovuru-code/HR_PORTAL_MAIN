@@ -324,6 +324,7 @@ CREATE TABLE "cv_uploads" (
 CREATE TABLE "educations" (
   "education_id" serial PRIMARY KEY,
   "employee_id" int,
+  "education_level" varchar(255),
   "degree" varchar,
   "university" varchar,
   "major" varchar,

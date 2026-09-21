@@ -56,6 +56,12 @@ router.use(authenticateToken);
 router.post('/:employeeId', requireEmployeeSelfOrAnyPermission(['employee:update', 'payroll:upload']), upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const filePath = `/api/local-upload/file/${req.params.employeeId}/${req.file.filename}`;
+    const role = String(req.user.accountType || req.user.role || '').toLowerCase();
+    const uploadedBy = {
+        userId: req.user.id,
+        employeeId: req.user.employeeId || null,
+        role: ['admin', 'root_admin', 'hr'].includes(role) ? 'admin' : 'employee',
+    };
     res.json({
         success: true,
         file: {
@@ -64,6 +70,7 @@ router.post('/:employeeId', requireEmployeeSelfOrAnyPermission(['employee:update
             size: req.file.size,
             url: filePath,
             category: req.body.category || 'doc',
+            uploadedBy,
         }
     });
 });

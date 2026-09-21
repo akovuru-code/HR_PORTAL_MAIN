@@ -8,6 +8,7 @@ import { useOnboardingPermissions } from '../../hooks/useOnboardingPermissions';
 import { useAuth } from "../../hooks/useAuth";
 import { useAdminView } from "../../contexts/AdminViewContext";
 import { saveOnboardingFull, submitOnboarding, getDraft, getOnboarding, registerDocument } from "../../api/onboarding";
+import FileUploadField from "../../components/emp/FileUploadField";
 
 const api = axios.create({ baseURL: "/api" });
 api.interceptors.request.use((config) => {
@@ -17,7 +18,46 @@ api.interceptors.request.use((config) => {
 });
 
 
-export default function ProfileOnboardDocs() {
+function VisaDocumentsCard({ visaType, employeeId, i9File, setI9File, w4File, setW4File, disabled, personLabel = 'Employee', categoryPrefix = 'employee' }) {
+  if (visaType !== 'H1B' && visaType !== 'F1') return null;
+
+  const visaLabel = visaType === 'H1B' ? 'H-1B' : 'F-1';
+  return <section className="rounded-2xl border-2 border-blue-200 bg-blue-50 shadow-sm p-6 mb-6">
+    <EmpTypography.h2 className="mb-2">{personLabel === 'Employee' ? 'Required' : `${personLabel} Required`} Documents for {visaLabel}</EmpTypography.h2>
+    <EmpTypography.small className="block mb-5">Complete and upload both required documents.</EmpTypography.small>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="rounded-xl border bg-white p-4 space-y-3">
+        <EmpTypography.h3>I-9</EmpTypography.h3>
+        <a className="text-blue-700 underline font-medium" href="https://www.uscis.gov/sites/default/files/document/forms/i-9.pdf" target="_blank" rel="noreferrer">Open official I-9 document</a>
+        <EmpTypography.small>Need to fill the I-9 document.</EmpTypography.small>
+        <FileUploadField label="Completed I-9 Upload:" employeeId={employeeId} category={`${categoryPrefix}_i9`} documentName={`${personLabel} I-9`} value={i9File} onChange={setI9File} disabled={disabled} />
+      </div>
+      <div className="rounded-xl border bg-white p-4 space-y-3">
+        <EmpTypography.h3>W-4</EmpTypography.h3>
+        <a className="text-blue-700 underline font-medium" href="https://www.irs.gov/pub/irs-pdf/fw4.pdf" target="_blank" rel="noreferrer">Open official W-4 document</a>
+        <EmpTypography.small>Need to fill the W-4 document.</EmpTypography.small>
+        <FileUploadField label="Completed W-4 Upload:" employeeId={employeeId} category={`${categoryPrefix}_w4`} documentName={`${personLabel} W-4`} value={w4File} onChange={setW4File} disabled={disabled} />
+      </div>
+    </div>
+  </section>;
+}
+
+export default function ProfileOnboardDocs({
+  embedded = false,
+  visaType,
+  i9File,
+  setI9File,
+  w4File,
+  setW4File,
+  hasSpouse = false,
+  spouseI9File,
+  setSpouseI9File,
+  spouseW4File,
+  setSpouseW4File,
+  spouseVisaType,
+  kids = [],
+  setKidDocument,
+}) {
   EmpTypography._log && EmpTypography._log();
   const pageKey = 'canEdit_onboarddocs';
   const {
@@ -53,6 +93,28 @@ export default function ProfileOnboardDocs() {
   ]);
 
   const [nameOptions, setNameOptions] = useState(["Employee"]);
+  const [selectedPerson, setSelectedPerson] = useState('employee');
+
+  const people = useMemo(() => [
+    { id: 'employee', label: 'Employee', visaType, i9File, setI9File, w4File, setW4File, categoryPrefix: 'employee' },
+    ...(hasSpouse ? [{
+      id: 'spouse', label: 'Spouse', visaType: spouseVisaType || visaType,
+      i9File: spouseI9File, setI9File: setSpouseI9File,
+      w4File: spouseW4File, setW4File: setSpouseW4File, categoryPrefix: 'spouse_onboard',
+    }] : []),
+    ...kids.map((kid, index) => ({
+      id: `kid-${index}`,
+      label: `Kid ${index + 1}`,
+      visaType: kid.visaType || kid.visa_type,
+      i9File: kid.i9File,
+      setI9File: file => setKidDocument?.(index, 'i9File', file),
+      w4File: kid.w4File,
+      setW4File: file => setKidDocument?.(index, 'w4File', file),
+      categoryPrefix: `onboard_kid_${index}`,
+    })),
+  ], [visaType, i9File, setI9File, w4File, setW4File, hasSpouse, spouseVisaType, spouseI9File, setSpouseI9File, spouseW4File, setSpouseW4File, kids, setKidDocument]);
+
+  const selectedPersonData = people.find(person => person.id === selectedPerson) || people[0];
 
   // Load server data then overlay draft
 
@@ -166,7 +228,13 @@ export default function ProfileOnboardDocs() {
 
   const buildPayload = () => ({
     tab: 'onboardDocs',
-    payload: { bank, insuranceRows, files },
+    payload: {
+      bank,
+      insuranceRows,
+      files,
+      spouseDocs: hasSpouse ? { i9File: spouseI9File || null, w4File: spouseW4File || null } : null,
+      kidDocs: kids.map(kid => ({ i9File: kid.i9File || null, w4File: kid.w4File || null })),
+    },
     spouse: null, kids: [], documents: [],
   });
 
@@ -174,6 +242,7 @@ export default function ProfileOnboardDocs() {
     for (const f of fileList) {
       if (f.file?.url) {
         registerDocument({
+          employeeId,
           name: f.name || f.file.originalName || 'Onboard Document',
           url: f.file.url,
           filename: f.file.filename,
@@ -234,7 +303,7 @@ export default function ProfileOnboardDocs() {
   return (
     <div className="space-y-8 font-employee">
       {/* Documents Table */}
-      <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
+      {!embedded && <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-[#b7d3e8] text-gray-900">
@@ -347,7 +416,35 @@ export default function ProfileOnboardDocs() {
             >Add Row</button>
           </div>
         )}
-      </div>
+      </div>}
+
+      <section className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
+        <EmpTypography.h2 className="mb-3">Person-specific Onboard Docs</EmpTypography.h2>
+        <div className="max-w-md mb-5">
+          <EmpTypography.label>Select person</EmpTypography.label>
+          <select
+            className="border rounded px-2 py-1 w-full"
+            value={selectedPersonData?.id || 'employee'}
+            onChange={event => setSelectedPerson(event.target.value)}
+          >
+            {people.map(person => <option key={person.id} value={person.id}>{person.label}</option>)}
+          </select>
+        </div>
+        <VisaDocumentsCard
+          visaType={selectedPersonData?.visaType}
+          employeeId={employeeId}
+          i9File={selectedPersonData?.i9File}
+          setI9File={selectedPersonData?.setI9File}
+          w4File={selectedPersonData?.w4File}
+          setW4File={selectedPersonData?.setW4File}
+          disabled={isReadOnly}
+          personLabel={selectedPersonData?.label || 'Employee'}
+          categoryPrefix={selectedPersonData?.categoryPrefix || 'employee'}
+        />
+        {selectedPersonData && selectedPersonData.visaType !== 'H1B' && selectedPersonData.visaType !== 'F1' && (
+          <EmpTypography.small>This person does not have H-1B or F-1 Onboard Docs requirements.</EmpTypography.small>
+        )}
+      </section>
 
       {/* Bank Details */}
       <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
@@ -362,6 +459,9 @@ export default function ProfileOnboardDocs() {
               *
             </span></EmpTypography.label>
             <input className="border rounded px-2 py-1 w-full" value={bank.name} onChange={e => setBank(b => ({ ...b, name: e.target.value }))} disabled={isReadOnly} />
+          </div>
+          <div>
+            <FileUploadField label="Void Check Document Upload:" employeeId={employeeId} category="void_check" documentName="Void Check" value={bank.voidCheck || null} onChange={file => setBank(b => ({ ...b, voidCheck: file }))} disabled={isReadOnly} />
           </div>
           <div>
             <EmpTypography.label>A/C No<span className="text-red-500">

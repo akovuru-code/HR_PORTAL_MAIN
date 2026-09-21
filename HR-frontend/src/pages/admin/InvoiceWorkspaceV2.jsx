@@ -67,17 +67,17 @@ export default function InvoiceWorkspaceV2({ employeeId: scopedEmployeeId }) {
   const setValue = (name, value) => {
     if (name === 'currency') setCurrencyManuallySelected(true);
     setForm(current => {
-    const next = { ...current, [name]: value };
-    if (name === 'companyId') next.templateName = lookups.companies.find(company => String(company.id) === String(value))?.templateName || '';
-    if (name === 'invoiceDate' || name === 'paymentTerms' || name === 'customPaymentDays') {
-      const days = name === 'paymentTerms' ? terms[value] : (current.paymentTerms === 'Custom' ? (name === 'customPaymentDays' ? value : current.customPaymentDays) : terms[current.paymentTerms]);
-      next.dueDate = dateAfter(name === 'invoiceDate' ? value : current.invoiceDate, days);
-    }
-    if (['dueDate', 'invoiceDate', 'paymentTerms', 'customPaymentDays'].includes(name)) {
-      const previous = autoDescription(current.employeeName, current.invoiceDate, current.dueDate);
-      const description = autoDescription(current.employeeName, name === 'invoiceDate' ? value : current.invoiceDate, next.dueDate);
-      if (!current.items[0].description || current.items[0].description === previous) next.items = [{ ...current.items[0], description }];
-    }
+      const next = { ...current, [name]: value };
+      if (name === 'companyId') next.templateName = lookups.companies.find(company => String(company.id) === String(value))?.templateName || '';
+      if (name === 'invoiceDate' || name === 'paymentTerms' || name === 'customPaymentDays') {
+        const days = name === 'paymentTerms' ? terms[value] : (current.paymentTerms === 'Custom' ? (name === 'customPaymentDays' ? value : current.customPaymentDays) : terms[current.paymentTerms]);
+        next.dueDate = dateAfter(name === 'invoiceDate' ? value : current.invoiceDate, days);
+      }
+      if (['dueDate', 'invoiceDate', 'paymentTerms', 'customPaymentDays'].includes(name)) {
+        const previous = autoDescription(current.employeeName, current.invoiceDate, current.dueDate);
+        const description = autoDescription(current.employeeName, name === 'invoiceDate' ? value : current.invoiceDate, next.dueDate);
+        if (!current.items[0].description || current.items[0].description === previous) next.items = [{ ...current.items[0], description }];
+      }
       return next;
     });
   };

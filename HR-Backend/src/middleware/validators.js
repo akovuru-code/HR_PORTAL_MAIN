@@ -11,16 +11,28 @@ const handleValidation = (req, res, next) => {
     next();
 };
 
+const optionalSsn = (field) =>
+    body(field).optional({ nullable: true, checkFalsy: true }).matches(/^[0-9]{9}$/).withMessage(`${field} must contain exactly 9 numeric digits`);
+
+const optionalPassportNumber = (field) =>
+    body(field).optional({ nullable: true, checkFalsy: true }).matches(/^[A-Za-z0-9]+$/).withMessage(`${field} must contain letters and numbers only`);
+
 // Validate partial save payload (basic checks)
 const saveOnboardingValidators = [
     body('payload.firstName').optional().isString().withMessage('firstName must be a string'),
     body('payload.lastName').optional().isString().withMessage('lastName must be a string'),
     body('payload.email').optional().isEmail().withMessage('email must be valid'),
+    optionalSsn('payload.ssn'),
+    optionalPassportNumber('payload.passportNumber'),
     // spouse fields
     body('spouse.firstName').optional().isString(),
     body('spouse.lastName').optional().isString(),
+    optionalSsn('spouse.ssn'),
+    optionalPassportNumber('spouse.passportNumber'),
     // kids can be an array
     body('kids').optional().isArray().withMessage('kids must be an array'),
+    optionalSsn('kids.*.ssn'),
+    optionalPassportNumber('kids.*.passportNumber'),
     handleValidation,
 ];
 
@@ -30,6 +42,8 @@ const saveDraftValidators = [
     body('payload').exists().withMessage('payload is required'),
     body('payload.firstName').optional().isString().withMessage('payload.firstName must be a string'),
     body('payload.lastName').optional().isString().withMessage('payload.lastName must be a string'),
+    optionalSsn('payload.ssn'),
+    optionalPassportNumber('payload.passportNumber'),
     body('payload.email').custom((value) => {
         // Skip validation if email is null, undefined, or empty string
         if (!value || value === '') return true;
@@ -52,11 +66,15 @@ const saveDraftValidators = [
     }),
     body('spouse.firstName').optional().isString().withMessage('spouse.firstName must be a string'),
     body('spouse.lastName').optional().isString().withMessage('spouse.lastName must be a string'),
+    optionalSsn('spouse.ssn'),
+    optionalPassportNumber('spouse.passportNumber'),
     // kids must be array of objects (basic check)
     body('kids').optional().isArray().withMessage('kids must be an array'),
     body('kids.*.firstName').optional().isString().withMessage('kids[].firstName must be a string'),
     body('kids.*.lastName').optional().isString().withMessage('kids[].lastName must be a string'),
     body('kids.*.dob').optional().isISO8601().withMessage('kids[].dob must be a valid date'),
+    optionalSsn('kids.*.ssn'),
+    optionalPassportNumber('kids.*.passportNumber'),
     // documents must be an array of objects with url/filename
     body('documents').optional().isArray().withMessage('documents must be an array'),
     body('documents.*.url').optional().custom((value) => {

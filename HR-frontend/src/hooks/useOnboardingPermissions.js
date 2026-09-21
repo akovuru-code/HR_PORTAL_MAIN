@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useContext } from 'react';
 import { getSession, requestEditPermission, getLatestEditRequest, getOnboarding } from '../api/onboarding';
 import { AdminViewContext } from '../contexts/AdminViewContext';
 import { useAuth } from './useAuth';
+import { canEditDocuments, isSubmittedByAdmin, isTabSubmitted } from '../utils/onboardingSubmission';
 
 export function useOnboardingPermissions(pageKey, sectionKey) {
     const adminView = useContext(AdminViewContext);
@@ -20,6 +21,7 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
 
     const [canEdit, setCanEdit] = useState(isAdminView ? adminCanEditEmployee : getCanEdit());
     const [onboardingSubmitted, setOnboardingSubmitted] = useState(isAdminView ? !adminCanEditEmployee : getSubmitted());
+    const [submittedByAdmin, setSubmittedByAdmin] = useState(false);
     const [permissionRequested, setPermissionRequested] = useState(false);
     const [permissionGranted, setPermissionGranted] = useState(false);
     const [requestStatus, setRequestStatus] = useState(null); // pending|approved|denied|null
@@ -31,6 +33,7 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
         const sync = () => {
             setCanEdit(getCanEdit());
             setOnboardingSubmitted(getSubmitted());
+            setSubmittedByAdmin(false);
         };
         window.addEventListener('storage', sync);
         return () => window.removeEventListener('storage', sync);
@@ -53,7 +56,9 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
                 try {
                     const onboardingRes = await getOnboarding(employeeId);
                     const submittedTabs = onboardingRes?.data?.employee?.submittedTabs || {};
-                    isSubmitted = !!submittedTabs[sectionKey];
+                    const submittedTab = submittedTabs[sectionKey];
+                    isSubmitted = isTabSubmitted(submittedTab);
+                    if (mounted) setSubmittedByAdmin(isSubmittedByAdmin(submittedTab));
                     // Keep localStorage in sync for fast initial render next time
                     if (typeof window !== 'undefined') {
                         if (isSubmitted) localStorage.setItem(`submitted_${sectionKey}`, 'true');
@@ -98,6 +103,7 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
             localStorage.removeItem(pageKey);
         }
         setOnboardingSubmitted(true);
+        setSubmittedByAdmin(false);
         setCanEdit(false);
         setPermissionGranted(false);
         setPermissionRequested(false);
@@ -148,6 +154,7 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
         canEdit,
         adminCanEditEmployee,
         onboardingSubmitted,
+        canEditDocuments: canEditDocuments({ onboardingSubmitted, canEdit, submittedByAdmin }),
         handleSubmit,
         requestPermission,
         resetPermission,

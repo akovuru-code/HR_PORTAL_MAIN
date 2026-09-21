@@ -1,8 +1,8 @@
 const Document = require('../models/document');
 const Employee = require('../models/employee');
 const AuditLog = require('../models/auditLog');
+const { isAdmin, visibleDocuments } = require('../utils/documentVisibility');
 
-function isAdmin(user) { return user && (user.role === 'admin' || user.role === 'hr'); }
 
 async function resolveEmployee(userId) {
   const userModel = require('../models/user');
@@ -31,7 +31,7 @@ exports.getDocuments = async (req, res) => {
       where: { employee_id: employee.employee_id },
       order: [['document_id', 'ASC']],
     });
-    res.json({ documents: docs });
+    res.json({ documents: visibleDocuments(docs, req.user, employee.employee_id) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -50,7 +50,7 @@ exports.getDocumentsForEmployee = async (req, res) => {
       return res.status(404).json({ error: 'Employee not found' });
     }
 
-    const isAdminUser = req.user && (req.user.role === 'admin' || req.user.role === 'hr');
+    const isAdminUser = isAdmin(req.user);
     const isSameEmployee = String(req.user?.employeeId || req.user?.id) === String(employeeId);
 
     if (!isAdminUser && !isSameEmployee) {
@@ -62,7 +62,7 @@ exports.getDocumentsForEmployee = async (req, res) => {
       order: [['document_id', 'ASC']],
     });
 
-    res.json({ documents: docs });
+    res.json({ documents: visibleDocuments(docs, req.user, employeeId) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -94,19 +94,25 @@ exports.registerDocument = async (req, res) => {
       ? `${employee.firstName} ${employee.lastName}`.trim()
       : authUser?.email || authUser?.name || 'Unknown';
 
+    const uploader = {
+      userId: req.user.id,
+      employeeId: isAdminUser ? (req.user.employeeId || null) : employee.employee_id,
+      role: isAdminUser ? 'admin' : 'employee',
+    };
+    const storedFileData = { ...(fileData || {}), uploadedBy: uploader };
     let doc;
     if (document_type && document_type !== 'admin_doc') {
       const existing = await Document.findOne({
         where: { employee_id: employee.employee_id, document_type },
       });
       if (existing) {
-        await existing.update({ name, url, filename, originalName, fileData, modifiedBy, expiry: expiry || null });
+        await existing.update({ name, url, filename, originalName, fileData: storedFileData, modifiedBy, expiry: expiry || null });
         doc = existing;
       } else {
-        doc = await Document.create({ employee_id: employee.employee_id, name, url, filename, originalName, document_type, fileData, modifiedBy, expiry: expiry || null });
+        doc = await Document.create({ employee_id: employee.employee_id, name, url, filename, originalName, document_type, fileData: storedFileData, modifiedBy, expiry: expiry || null });
       }
     } else {
-      doc = await Document.create({ employee_id: employee.employee_id, name, url, filename, originalName, document_type, fileData, modifiedBy, expiry: expiry || null });
+      doc = await Document.create({ employee_id: employee.employee_id, name, url, filename, originalName, document_type, fileData: storedFileData, modifiedBy, expiry: expiry || null });
     }
 
     res.json({ document: doc });
