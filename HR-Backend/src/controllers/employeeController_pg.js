@@ -6,6 +6,28 @@ const Emergency = require('../models/emergency');
 const Document = require('../models/document');
 const { consumeEditApproval, consumeDeleteApproval } = require('../services/deleteAuthorizationService');
 
+const validatePersonalIdentifiers = (employeeData, spouse, kids) => {
+    const people = [
+        { label: 'Employee', ssn: employeeData.ssn, passportNumber: employeeData.passportNumber || employeeData.passport_number },
+        ...(spouse ? [{ label: 'Spouse', ssn: spouse.ssn, passportNumber: spouse.passportNumber || spouse.passport_number }] : []),
+        ...(Array.isArray(kids) ? kids.map((kid, index) => ({
+            label: `Kid ${index + 1}`,
+            ssn: kid.ssn,
+            passportNumber: kid.passportNumber || kid.passport_number,
+        })) : []),
+    ];
+
+    for (const person of people) {
+        if (person.ssn != null && person.ssn !== '' && !/^[0-9]{9}$/.test(String(person.ssn))) {
+            return `${person.label} SSN must contain exactly 9 numeric digits.`;
+        }
+        if (person.passportNumber != null && person.passportNumber !== '' && !/^[A-Za-z0-9]+$/.test(String(person.passportNumber))) {
+            return `${person.label} passport number must contain letters and numbers only.`;
+        }
+    }
+    return '';
+};
+
 // Get employee by ID (with spouse, kids, documents)
 exports.getEmployee = async (req, res) => {
     try {
@@ -22,6 +44,8 @@ exports.getEmployee = async (req, res) => {
 // Create new employee (with spouse, kids, documents)
 exports.createEmployee = async (req, res) => {
     const { spouse, kids, documents, ...employeeData } = req.body;
+    const validationError = validatePersonalIdentifiers(employeeData, spouse, kids);
+    if (validationError) return res.status(400).json({ error: validationError });
     const t = await Employee.sequelize.transaction();
     try {
         const employee = await Employee.create(employeeData, { transaction: t });
@@ -48,6 +72,8 @@ exports.createEmployee = async (req, res) => {
 // Update employee (with spouse, kids, documents)
 exports.updateEmployee = async (req, res) => {
     const { spouse, kids, documents, ...employeeData } = req.body;
+    const validationError = validatePersonalIdentifiers(employeeData, spouse, kids);
+    if (validationError) return res.status(400).json({ error: validationError });
     const t = await Employee.sequelize.transaction();
     try {
         const [updated] = await Employee.update(employeeData, { where: { employee_id: req.params.id }, transaction: t });

@@ -45,5 +45,10 @@
     "jest": "^30.2.0",
     "nodemon": "^3.0.3",
     "supertest": "^7.1.4"
+  },
+  "allowScripts": {
+    "@scarf/scarf@1.4.0": true,
+    "aws-sdk@2.1693.0": true,
+    "unrs-resolver@1.11.1": true
   }
 }

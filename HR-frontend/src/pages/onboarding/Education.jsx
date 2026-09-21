@@ -6,18 +6,8 @@ import { useAuth } from "../../hooks/useAuth";
 import { useAdminView } from "../../contexts/AdminViewContext";
 import { saveOnboardingFull, submitOnboarding, getDraft, getOnboarding } from "../../api/onboarding";
 import FileUploadField from "../../components/emp/FileUploadField";
+import { EDUCATION_LEVELS, normalizeEducation, educationFromServer, mergeEducationDraft } from "../../utils/educationLevels";
 EmpTypography._log && EmpTypography._log();
-
-const emptyEducation = () => ({
-  id: Date.now(),
-  degree: "",
-  university: "",
-  major: "",
-  startDate: "",
-  endDate: "",
-  address: { street: "", city: "", state: "", zipCode: "" },
-  docFile: null,
-});
 
 const emptyCert = () => ({
   id: Date.now(),
@@ -47,52 +37,46 @@ export default function Education() {
     onboardingSubmitted,
     handleSubmit: hookHandleSubmit,
     requestPermission,
-    permissionRequested,
     permissionGranted,
   } = useOnboardingPermissions(pageKey, "education");
 
   // UI state
   const [saving, setSaving] = useState(false);
-  const [validationError, setValidationError] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [modifyReason, setModifyReason] = useState("");
   const [reasonError, setReasonError] = useState("");
 
   // Data state
-  const [educationList, setEducationList] = useState([emptyEducation()]);
+  const [educationList, setEducationList] = useState(() => normalizeEducation());
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [certList, setCertList] = useState([emptyCert()]);
+  const [deletedCertificationIds, setDeletedCertificationIds] = useState([]);
   const [evaluationList, setEvaluationList] = useState([emptyEvaluation()]);
 
-  const formDisabled = onboardingSubmitted && !canEdit;
+  const formDisabled = loading || !!loadError || (onboardingSubmitted && !canEdit);
 
   // Load data from server (submitted) then overlay draft
   useEffect(() => {
+    let cancelled = false;
     async function loadData() {
       if (!employeeId) return;
+      setLoading(true);
+      setLoadError("");
+      setEducationList(normalizeEducation());
+      setCertList([emptyCert()]);
+      setDeletedCertificationIds([]);
+      setEvaluationList([emptyEvaluation()]);
       try {
         const onboardingRes = await getOnboarding(employeeId);
-        const serverEdus = onboardingRes?.data?.educations;
+        const draft = await getDraft(employeeId, 'education');
+        if (cancelled) return;
+        const serverEdus = onboardingRes?.data?.educations || [];
+        const mappedEducation = serverEdus.map(educationFromServer);
+        setEducationList(normalizeEducation(mappedEducation));
         if (serverEdus && serverEdus.length > 0) {
-          setEducationList(serverEdus.map(e => ({
-            id: e.education_id,
-            degree: e.degree || "",
-            university: e.university || "",
-            major: e.major || "",
-            startDate: e.start_date || "",
-            endDate: e.end_date || "",
-            address: {
-              street: e.street || "",
-              city: e.city || "",
-              state: e.state || "",
-              zipCode: e.zip_code || "",
-            },
-            docFile: (e.uploads && e.uploads.length > 0) ? {
-              url: e.uploads[0].file_url,
-              filename: e.uploads[0].file_name,
-              originalName: e.uploads[0].file_name,
-            } : null,
-          })));
           // Collect certifications from all education records (with files)
           const allCerts = serverEdus.flatMap(e => (e.certifications || []).map(c => ({
             id: c.certification_id,
@@ -125,19 +109,29 @@ export default function Education() {
         }
 
         // Overlay with education-specific draft
-        const draft = await getDraft(employeeId, 'education');
         if (draft?.data?.payload) {
           const p = draft.data.payload;
-          if (p.educationList) setEducationList(p.educationList);
-          if (p.certList) setCertList(p.certList);
+          if (Array.isArray(p.educationList)) setEducationList(mergeEducationDraft(mappedEducation, p.educationList));
+          if (Array.isArray(p.certList)) {
+            const removed = p.deletedCertificationIds || [];
+            setDeletedCertificationIds(removed);
+            setCertList(saved => [...p.certList, ...saved.filter(cert =>
+              !p.certList.some(draftCert => String(draftCert.id) === String(cert.id)) &&
+              !removed.some(id => String(id) === String(cert.id)) &&
+              (cert.name || cert.org || cert.certFile || cert.description)
+            )]);
+          }
           if (p.evaluationList) setEvaluationList(p.evaluationList);
         }
-      } catch (err) {
-        // ignore
+      } catch {
+        if (!cancelled) setLoadError("Unable to load education details. Please reload before making changes.");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     loadData();
-  }, [employeeId]);
+    return () => { cancelled = true; };
+  }, [employeeId, reloadVersion]);
 
   // Education handlers
   const handleEduChange = (idx, field, value) =>
@@ -151,9 +145,6 @@ export default function Education() {
   const handleEduFile = (idx, file) =>
     setEducationList(list => list.map((e, i) => (i === idx ? { ...e, docFile: file } : e)));
 
-  const addEducation = () => setEducationList(list => [...list, emptyEducation()]);
-  const deleteEducation = (idx) => setEducationList(list => list.filter((_, i) => i !== idx));
-
   // Certification handlers
   const handleCertChange = (idx, field, value) =>
     setCertList(list => list.map((c, i) => (i === idx ? { ...c, [field]: value } : c)));
@@ -162,7 +153,10 @@ export default function Education() {
     setCertList(list => list.map((c, i) => (i === idx ? { ...c, certFile: file } : c)));
 
   const addCert = () => setCertList(list => [...list, emptyCert()]);
-  const deleteCert = (idx) => setCertList(list => list.filter((_, i) => i !== idx));
+  const deleteCert = (idx) => {
+    setDeletedCertificationIds(ids => [...ids, certList[idx].id]);
+    setCertList(list => list.filter((_, i) => i !== idx));
+  };
 
   // Evaluation handlers
   const handleEvalChange = (idx, field, value) =>
@@ -177,24 +171,14 @@ export default function Education() {
   // Payload
   const buildBody = () => ({
     tab: "education",
-    payload: { educationList, certList, evaluationList },
+    payload: { educationList, certList, deletedCertificationIds, evaluationList },
     spouse: null,
     kids: [],
     documents: [],
   });
 
-  const validate = () => {
-    if (!educationList.length || !educationList[0].degree?.trim()) {
-      setValidationError("At least one education degree is required.");
-      return false;
-    }
-    setValidationError("");
-    return true;
-  };
-
   // Save draft
   const handleSave = async () => {
-    if (!validate()) return;
     setSaving(true);
     try {
       if (!employeeId) throw new Error("Missing employeeId");
@@ -210,7 +194,6 @@ export default function Education() {
   // Submit
   const handleConfirmSubmit = async () => {
     setShowConfirmModal(false);
-    if (!validate()) return;
     setSaving(true);
     try {
       if (!employeeId) throw new Error("Missing employeeId");
@@ -218,6 +201,7 @@ export default function Education() {
       await saveOnboardingFull(employeeId, buildBody(), true);
       // Mark as submitted (backend persists draft data to real tables)
       await submitOnboarding(employeeId, 'education');
+      setReloadVersion(version => version + 1);
       hookHandleSubmit();
       alert("Submitted successfully");
     } catch (err) {
@@ -261,127 +245,132 @@ export default function Education() {
   return (
     <div className="bg-white rounded-2xl border shadow-sm p-6 font-employee">
       <div className="mb-4 bg-blue-50 border border-blue-200 rounded px-4 py-2 text-blue-900 text-sm">
-        ***Note : Please update all your educational qualifications starting from school to the most recent.***
+        Please update your educational qualifications in the sections below, from Master's to High School.
       </div>
 
       {/* Education Section */}
       <div className="mb-6 border-b pb-6">
-        <EmpTypography.label>Education Details<span className="text-red-500">
-          *
-        </span> :</EmpTypography.label>
-        {educationList.map((edu, idx) => (
-          <div key={edu.id || idx} className="mb-4 p-4 rounded-xl border shadow-sm">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
-              <div>
-                <EmpTypography.label>Degree<span className="text-red-500">*</span></EmpTypography.label>
-                <input type="text" placeholder="Degree" value={edu.degree}
-                  onChange={e => handleEduChange(idx, "degree", e.target.value)}
-                  disabled={formDisabled} className={`border rounded px-2 py-1 text-sm w-full ${formDisabled ? 'bg-gray-100' : ''}`} />
-              </div>
-              <div>
-                <EmpTypography.label>University<span className="text-red-500">*</span></EmpTypography.label>
-                <input type="text" placeholder="University" value={edu.university}
-                  onChange={e => handleEduChange(idx, "university", e.target.value)}
-                  disabled={formDisabled} className={`border rounded px-2 py-1 text-sm w-full ${formDisabled ? 'bg-gray-100' : ''}`} />
-              </div>
-              <div>
-                <EmpTypography.label>Major<span className="text-red-500">*</span></EmpTypography.label>
-                <input type="text" placeholder="Major" value={edu.major}
-                  onChange={e => handleEduChange(idx, "major", e.target.value)}
-                  disabled={formDisabled} className={`border rounded px-2 py-1 text-sm w-full ${formDisabled ? 'bg-gray-100' : ''}`} />
-              </div>
-            </div>
-
-            {/* Address */}
-            <div className="mb-2">
-              <EmpTypography.label>Address<span className="text-red-500">*</span></EmpTypography.label>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                {[
-                  { key: "street", label: "Street" },
-                  { key: "city", label: "City" },
-                  { key: "state", label: "State" },
-                  { key: "zipCode", label: "Zip Code" },
-                ].map(({ key, label }) => (
-                  <div key={key}>
-                    <EmpTypography.small>{label}</EmpTypography.small>
-                    <input className={`w-full border rounded px-2 py-1 text-sm ${formDisabled ? 'bg-gray-100' : ''}`}
-                      value={edu.address?.[key] || ""}
-                      onChange={e => handleEduAddress(idx, key, e.target.value)}
-                      disabled={formDisabled} />
+        <EmpTypography.label>Education Details <span className="text-red-500">*</span> :</EmpTypography.label>
+        {loadError && <p role="alert" className="text-red-600 text-sm mb-4">{loadError}</p>}
+        {loading && <p role="status" className="text-sm mb-4">Loading education details...</p>}
+        {EDUCATION_LEVELS.filter(({ key }) => key !== 'degree').map(({ key, label }) => (
+          <section key={key} aria-labelledby={`education-${key}`} className="mb-4 p-4 rounded-xl border shadow-sm min-w-0">
+            <h3 id={`education-${key}`} className="font-semibold text-gray-900 mb-3">{label}</h3>
+            {educationList.map((edu, idx) => ({ edu, idx })).filter(({ edu }) =>
+              edu.legacy ? key === 'degree' : edu.educationLevel === key
+            ).map(({ edu, idx }) => (
+              <div key={`${edu.id}-${idx}`} className={edu.legacy ? "border-t pt-4 mt-4" : ""}>
+                {edu.legacy && <p className="text-sm font-medium text-gray-700 mb-3">Existing qualification: {edu.degree || "Unspecified"}</p>}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+                  <div>
+                    <EmpTypography.label>Degree</EmpTypography.label>
+                    <input type="text" placeholder="Degree" value={edu.degree}
+                      onChange={e => handleEduChange(idx, "degree", e.target.value)}
+                      disabled={formDisabled} className={`border rounded px-2 py-1 text-sm w-full ${formDisabled ? 'bg-gray-100' : ''}`} />
                   </div>
-                ))}
+                  <div>
+                    <EmpTypography.label>University</EmpTypography.label>
+                    <input type="text" placeholder="University" value={edu.university}
+                      onChange={e => handleEduChange(idx, "university", e.target.value)}
+                      disabled={formDisabled} className={`border rounded px-2 py-1 text-sm w-full ${formDisabled ? 'bg-gray-100' : ''}`} />
+                  </div>
+                  <div>
+                    <EmpTypography.label>Major</EmpTypography.label>
+                    <input type="text" placeholder="Major" value={edu.major}
+                      onChange={e => handleEduChange(idx, "major", e.target.value)}
+                      disabled={formDisabled} className={`border rounded px-2 py-1 text-sm w-full ${formDisabled ? 'bg-gray-100' : ''}`} />
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div className="mb-2">
+                  <EmpTypography.label>Address</EmpTypography.label>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                    {[
+                      { key: "street", label: "Street" },
+                      { key: "city", label: "City" },
+                      { key: "state", label: "State" },
+                      { key: "zipCode", label: "Zip Code" },
+                    ].map(({ key, label }) => (
+                      <div key={key}>
+                        <EmpTypography.small>{label}</EmpTypography.small>
+                        <input className={`w-full border rounded px-2 py-1 text-sm ${formDisabled ? 'bg-gray-100' : ''}`}
+                          value={edu.address?.[key] || ""}
+                          onChange={e => handleEduAddress(idx, key, e.target.value)}
+                          disabled={formDisabled} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Dates */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
+                  <div>
+                    <EmpTypography.small>Start Date</EmpTypography.small>
+                    <input type="date"
+
+                      value={edu.startDate}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const year = value.split("-")[0];
+
+                        if (year.length <= 4) {
+                          handleEduChange(idx, "startDate", value);
+                        } else {
+                          e.target.value = value.slice(0, 4);
+                        }
+                      }}
+                      max="9999-12-31"
+                      disabled={formDisabled}
+                      className={`border rounded px-2 py-1 text-sm w-full min-w-0 ${formDisabled ? 'bg-gray-100' : ''}`}
+                    />
+                  </div>
+                  <div>
+                    <EmpTypography.small>End Date</EmpTypography.small>
+                    <input type="date"
+
+                      value={edu.endDate}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const year = value.split("-")[0];
+
+                        if (year.length <= 4) {
+                          handleEduChange(idx, "endDate", value);
+                        } else {
+                          e.target.value = value.slice(0, 4);
+                        }
+                      }}
+                      max="9999-12-31"
+                      disabled={formDisabled}
+                      className={`border rounded px-2 py-1 text-sm w-full min-w-0 ${formDisabled ? 'bg-gray-100' : ''}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Document Upload */}
+                <div className="w-full max-w-xs mb-2">
+                  <FileUploadField
+                    label="Upload Certificate:"
+                    value={edu.docFile}
+                    onChange={file => handleEduFile(idx, file)}
+                    disabled={formDisabled}
+                    employeeId={employeeId}
+                    category="education"
+                  />
+                </div>
+
+                {edu.additionalUploads?.length > 0 && (
+                  <div className="text-sm space-y-1">
+                    <p className="font-medium">Other saved documents</p>
+                    {edu.additionalUploads.map(upload => (
+                      <a key={upload.id || upload.file_url} href={upload.file_url} target="_blank" rel="noopener noreferrer"
+                        className="block text-blue-600 underline break-all">{upload.file_name || "Download document"}</a>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-
-            {/* Dates */}
-            <div className="flex gap-4 mb-2">
-              <div>
-                <EmpTypography.small>Start Date<span className="text-red-500">*</span></EmpTypography.small>
-                <input
-                  type="date"
-                  value={edu.startDate}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    const year = value.split("-")[0];
-
-                    if (year.length <= 4) {
-                      handleEduChange(idx, "startDate", value);
-                    } else {
-                      e.target.value = value.slice(0, 4);
-                    }
-                  }}
-                  max="9999-12-31"
-                  disabled={formDisabled}
-                  className={`border rounded px-2 py-1 text-sm ${formDisabled ? 'bg-gray-100' : ''}`}
-                />
-              </div>
-              <div>
-                <EmpTypography.small>End Date<span className="text-red-500">*</span></EmpTypography.small>
-                <input
-                  type="date"
-                  value={edu.endDate}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    const year = value.split("-")[0];
-
-                    if (year.length <= 4) {
-                      handleEduChange(idx, "endDate", value);
-                    } else {
-                      e.target.value = value.slice(0, 4);
-                    }
-                  }}
-                  max="9999-12-31"
-                  disabled={formDisabled}
-                  className={`border rounded px-2 py-1 text-sm ${formDisabled ? 'bg-gray-100' : ''}`}
-                />
-              </div>
-            </div>
-
-            {/* Document Upload */}
-            <div className="w-full max-w-xs mb-2">
-              <FileUploadField
-                label="Document Upload:"
-                value={edu.docFile}
-                onChange={file => handleEduFile(idx, file)}
-                disabled={formDisabled}
-                employeeId={employeeId}
-                category="education"
-              />
-            </div>
-
-            {/* Add/Delete */}
-            <div className="flex gap-2">
-              {!formDisabled && (
-                <EmpTypography.button variant="primary" onClick={addEducation}>+ Add</EmpTypography.button>
-              )}
-              {educationList.length > 1 && !formDisabled && (
-                <button type="button" className="text-red-600 px-2 py-1 rounded hover:bg-red-100"
-                  onClick={() => deleteEducation(idx)}>
-                  <FaTrash />
-                </button>
-              )}
-            </div>
-          </div>
+            ))}
+          </section>
         ))}
       </div>
 
@@ -407,9 +396,9 @@ export default function Education() {
             <div className="flex gap-4 mb-2">
               <div>
                 <EmpTypography.small>Start Date</EmpTypography.small>
-                <input
-                  type="date"
-                  value={cert.startDateDate}
+                <input type="date"
+
+                  value={cert.startDate}
                   onChange={e => {
                     const value = e.target.value;
                     const year = value.split("-")[0];
@@ -428,8 +417,8 @@ export default function Education() {
               </div>
               <div>
                 <EmpTypography.small>End Date</EmpTypography.small>
-                <input
-                  type="date"
+                <input type="date"
+
                   value={cert.endDate}
                   onChange={e => {
                     const value = e.target.value;
@@ -523,20 +512,15 @@ export default function Education() {
         ))}
       </div>
 
-      {/* Validation Error */}
-      {validationError && (
-        <EmpTypography.small className="text-red-600 mb-2">{validationError}</EmpTypography.small>
-      )}
-
       {/* Action Buttons */}
       <div className="flex justify-end mt-4 gap-2">
         {(!onboardingSubmitted || canEdit) && (
-          <EmpTypography.button variant="primary" onClick={handleSave} disabled={saving}>
+          <EmpTypography.button variant="primary" onClick={handleSave} disabled={saving || formDisabled}>
             {saving ? "Saving..." : "Save"}
           </EmpTypography.button>
         )}
         {(!onboardingSubmitted || canEdit) && (
-          <EmpTypography.button variant="primary" onClick={() => setShowConfirmModal(true)} disabled={saving}>
+          <EmpTypography.button variant="primary" onClick={() => setShowConfirmModal(true)} disabled={saving || formDisabled}>
             Submit
           </EmpTypography.button>
         )}

@@ -6,10 +6,64 @@ import DocumentUploader from "../../components/emp/DocumentUploader";
 import { useAuth } from "../../hooks/useAuth";
 import { useAdminView } from "../../contexts/AdminViewContext";
 import { useOnboardingPermissions } from "../../hooks/useOnboardingPermissions";
-import { saveOnboardingFull, getDraft, getOnboarding } from "../../api/onboarding";
+import { saveOnboardingFull, getDraft, getOnboarding, registerDocument } from "../../api/onboarding";
 EmpTypography._log && EmpTypography._log();
 //import EmpTypography from "../../components/emp/EmpTypography";
 
+const emptyDocumentFiles = () => ({ employee: null, admin: null });
+
+function normalizeDocumentFiles(value) {
+  if (!value) return emptyDocumentFiles();
+  if (Object.prototype.hasOwnProperty.call(value, 'employee') || Object.prototype.hasOwnProperty.call(value, 'admin')) {
+    return { ...emptyDocumentFiles(), ...value };
+  }
+  // Documents saved before uploader tracking are retained for administrators.
+  return { employee: null, admin: value };
+}
+
+function EmployerDocumentUpload({ employeeId, category, documentName, documentFiles, onChange, disabled, isAdmin, note }) {
+  const files = normalizeDocumentFiles(documentFiles);
+  const ownKey = isAdmin ? 'admin' : 'employee';
+  return (
+    <>
+      <FileUploadField
+        label="Document Upload:"
+        value={files[ownKey]}
+        onChange={file => {
+          onChange({ ...files, [ownKey]: file });
+          if (file?.url) {
+            registerDocument({
+              employeeId,
+              name: documentName,
+              url: file.url,
+              filename: file.filename,
+              originalName: file.originalName,
+              document_type: category,
+              fileData: file,
+            }).catch(() => {});
+          }
+        }}
+        employeeId={employeeId}
+        category={category}
+        documentName={documentName}
+        disabled={disabled}
+      />
+      {isAdmin && files.employee?.url && (
+        <div className="mt-2">
+          <FileUploadField
+            label="Employee uploaded document:"
+            value={files.employee}
+            onChange={() => {}}
+            employeeId={employeeId}
+            category={category}
+            disabled
+          />
+        </div>
+      )}
+      {note && <EmpTypography.small className="mt-1 text-gray-600">{note}</EmpTypography.small>}
+    </>
+  );
+}
 
 const initialClient = {
   name: "",
@@ -17,12 +71,16 @@ const initialClient = {
   startDate: "",
   endDate: "",
   workEmail: "",
+  workPhone: "",
+  workPhoneCountryCode: "+1",
+  managerName: "",
+  managerDesignation: "",
   managerEmail: "",
   managerPhone: "",
   managerPhoneCountryCode: "+1",
   remoteWorkLocation: "",
   docs: [], // [{type, files}]
-  docFile: null,
+  docFiles: emptyDocumentFiles(),
 };
 const initialVendor = {
   name: "",
@@ -35,7 +93,7 @@ const initialVendor = {
   phone: "",
   phoneCountryCode: "+1",
   docs: [], // [{type, files}]
-  docFile: null,
+  docFiles: emptyDocumentFiles(),
 };
 const initialPrime = {
   name: "",
@@ -44,9 +102,12 @@ const initialPrime = {
   address: "",
   email: "",
   phone: "",
+  workEmail: "",
+  workPhone: "",
+  workPhoneCountryCode: "+1",
   phoneCountryCode: "+1",
   docs: [], // [{type, files}]
-  docFile: null,
+  docFiles: emptyDocumentFiles(),
 };
 
 const MAX_DATE = "9999-12-31";
@@ -68,7 +129,8 @@ const WorkClient = forwardRef(function WorkClient({
   employerIndex = -1,
   draftTab,
   detailType,
-  useParentDataOnly = false
+  useParentDataOnly = false,
+  documentsReadOnly
 }, ref) {
 
   // Normalize the selected detail type
@@ -135,10 +197,12 @@ const WorkClient = forwardRef(function WorkClient({
     }
   };
 
-  const { user } = useAuth();
+  const { user, accountType } = useAuth();
   const { targetEmployeeId } = useAdminView() || {};
-  const { canEdit, onboardingSubmitted } = useOnboardingPermissions('canEdit_profilework', 'profileWork');
+  const { canEdit, onboardingSubmitted, canEditDocuments } = useOnboardingPermissions('canEdit_profilework', 'profileWork');
   const isReadOnly = onboardingSubmitted && !canEdit;
+  const areDocumentsReadOnly = documentsReadOnly ?? !canEditDocuments;
+  const isAdminViewer = ['admin', 'root_admin', 'hr'].includes(String(accountType || user?.role || '').toLowerCase());
 
   useEffect(() => {
     async function loadData() {
@@ -175,7 +239,7 @@ const WorkClient = forwardRef(function WorkClient({
             managerPhone: c.manager_phone || '',
             managerPhoneCountryCode: c.country_code || c.meta?.managerPhoneCountryCode || c.meta?.countryCode || '+1',
             remoteWorkLocation: c.remote_work_location || '',
-            docFile: c.doc_file || null,
+            docFiles: normalizeDocumentFiles(c.doc_file),
           }));
           const vendors = serverClients.filter(c => c.type === 'vendor').map(v => ({
             ...initialVendor,
@@ -188,7 +252,7 @@ const WorkClient = forwardRef(function WorkClient({
             phone: v.phone || '',
             phoneCountryCode: v.country_code || v.meta?.phoneCountryCode || v.meta?.countryCode || '+1',
             finc: v.fein || '',
-            docFile: v.doc_file || null,
+            docFiles: normalizeDocumentFiles(v.doc_file),
           }));
           const primes = serverClients.filter(c => c.type === 'primeVendor').map(p => ({
             ...initialPrime,
@@ -198,8 +262,11 @@ const WorkClient = forwardRef(function WorkClient({
             endDate: p.end_date || '',
             email: p.email || '',
             phone: p.phone || '',
+            workEmail: p.work_email || '',
+            workPhone: p.work_phone || '',
+            workPhoneCountryCode: p.meta?.workPhoneCountryCode || '+1',
             phoneCountryCode: p.country_code || p.meta?.phoneCountryCode || p.meta?.countryCode || '+1',
-            docFile: p.doc_file || null,
+            docFiles: normalizeDocumentFiles(p.doc_file),
           }));
           if (clients.length > 0) { setClientInfo(clients); loaded = true; }
           if (vendors.length > 0) { setVendorInfo(vendors); loaded = true; }
@@ -231,6 +298,7 @@ const WorkClient = forwardRef(function WorkClient({
             setClientInfo(payload.clientInfo.map(ci => ({
               ...initialClient,
               ...ci,
+              docFiles: normalizeDocumentFiles(ci.docFiles || ci.docFile),
               managerPhoneCountryCode: ci.managerPhoneCountryCode || ci.countryCode || '+1',
             })));
             loaded = true;
@@ -239,6 +307,7 @@ const WorkClient = forwardRef(function WorkClient({
             setVendorInfo(payload.vendorInfo.map(vi => ({
               ...initialVendor,
               ...vi,
+              docFiles: normalizeDocumentFiles(vi.docFiles || vi.docFile),
               phoneCountryCode: vi.phoneCountryCode || vi.countryCode || '+1',
             })));
             loaded = true;
@@ -247,6 +316,8 @@ const WorkClient = forwardRef(function WorkClient({
             setPrimeInfo(payload.primeInfo.map(pi => ({
               ...initialPrime,
               ...pi,
+              docFiles: normalizeDocumentFiles(pi.docFiles || pi.docFile),
+              workPhoneCountryCode: pi.workPhoneCountryCode || '+1',
               phoneCountryCode: pi.phoneCountryCode || pi.countryCode || '+1',
             })));
             loaded = true;
@@ -371,29 +442,54 @@ const WorkClient = forwardRef(function WorkClient({
             <div key={idx} className={`mb-4 pb-4 ${idx !== clientInfo.length - 1 ? 'border-b' : ''}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                 <input type="text" placeholder="Client Name" value={c.name} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, name: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="text" placeholder="Client Location Address" value={c.address} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, address: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="date" max={MAX_DATE} placeholder="Start Date" value={toDateInputValue(c.startDate)} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, startDate: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="date" max={MAX_DATE} placeholder="End Date" value={toDateInputValue(c.endDate)} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, endDate: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="email" placeholder="Work Email" value={c.workEmail} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, workEmail: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="email" placeholder="Client Manager Email" value={c.managerEmail} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, managerEmail: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-
+                <input type="text" placeholder="Client Location" value={c.address} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, address: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
+                <input type="text" placeholder="Client Manager Name" value={c.managerName || ''} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, managerName: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
+                <input type="email" placeholder="Employee Work Email ID" value={c.workEmail || ""} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, workEmail: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
+                <input type="text" placeholder="Client Manager Designation" value={c.managerDesignation || ''} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, managerDesignation: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
+                {/* Employee Work Phone with Country Code */}
+                <div className="flex gap-2 w-full max-w-md">
+                  <select
+                    aria-label="Employee Work Phone Country Code"
+                    value={c.workPhoneCountryCode || "+1"}
+                    onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, workPhoneCountryCode: e.target.value } : ci))}
+                    className="border rounded px-2 py-2 text-sm bg-white shrink-0"
+                    disabled={isReadOnly}
+                  >
+                    <option value="+1">US (+1)</option>
+                    <option value="+1">Canada (+1)</option>
+                    <option value="+91">India (+91)</option>
+                  </select>
+                  <input
+                    type="tel"
+                    placeholder="Employee Work Phone Number"
+                    value={c.workPhone || ""}
+                    onChange={e => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                      setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, workPhone: val } : ci));
+                    }}
+                    maxLength={10}
+                    className="border rounded px-3 py-2 text-sm flex-1 min-w-0"
+                    disabled={isReadOnly}
+                  />
+                </div>
+                <input type="email" placeholder="Client Manager Email ID" value={c.managerEmail} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, managerEmail: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
+                <input type="text" placeholder="Remote Work Location" value={c.remoteWorkLocation} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, remoteWorkLocation: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
                 {/* Manager Phone with Country Code */}
                 <div className="flex gap-2 w-full max-w-md">
                   <select
+                    aria-label="Client Manager Phone Country Code"
                     value={c.managerPhoneCountryCode || "+1"}
                     onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, managerPhoneCountryCode: e.target.value } : ci))}
                     className="border rounded px-2 py-2 text-sm bg-white shrink-0"
                     disabled={isReadOnly}
                   >
-                    <option value="+91">🇮🇳 India (+91)</option>
-                    <option value="+1">🇺🇸 USA (+1)</option>
-                    <option value="+1-CA">🇨🇦 Canada (+1)</option>
-                    <option value="+44">🇬🇧 UK (+44)</option>
-                    <option value="+61">🇦🇺 Australia (+61)</option>
+                    <option value="+1">US (+1)</option>
+                    <option value="+1">Canada (+1)</option>
+                    <option value="+91">India (+91)</option>
                   </select>
                   <input
                     type="tel"
-                    placeholder="Client Manager Phone"
+                    placeholder="Client Manager Phone Number"
                     value={c.managerPhone || ""}
                     onChange={e => {
                       const val = e.target.value.replace(/\D/g, "").slice(0, 10);
@@ -404,8 +500,6 @@ const WorkClient = forwardRef(function WorkClient({
                     disabled={isReadOnly}
                   />
                 </div>
-
-                <input type="text" placeholder="Remote Work Location" value={c.remoteWorkLocation} onChange={e => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, remoteWorkLocation: e.target.value } : ci))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
               </div>
               {/* Cilent Radio Group */}
               <div className="flex flex-col md:flex-row gap-2 mb-2">
@@ -434,15 +528,17 @@ const WorkClient = forwardRef(function WorkClient({
               )}
               <div className="flex items-center justify-between mb-2 gap-4">
                 <div className="flex flex-col flex-1">
-                  <FileUploadField
-                    label="Document Upload:"
-                    value={c.docFile}
-                    onChange={file => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, docFile: file } : ci))}
+                  <EmployerDocumentUpload
+                    documentFiles={c.docFiles}
+                    onChange={files => setClientInfo(info => info.map((ci, i) => i === idx ? { ...ci, docFiles: files } : ci))}
                     employeeId={targetEmployeeId || user?.employeeId || user?.id}
                     category={`work_${employerType}_${employerIndex}_client_${idx}_doc`}
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Client ${idx + 1} Document`}
-                    disabled={isReadOnly}
+                    disabled={areDocumentsReadOnly}
+                    isAdmin={isAdminViewer}
+                    note="Client letter and Appreciation documents needed."
                   />
+                  
                 </div>
                 <div className="flex justify-between items-center mt-2">
                   <EmpTypography.button variant="primary" onClick={() => handleAdd("client")} disabled={isReadOnly}>+ Add</EmpTypography.button>
@@ -468,8 +564,6 @@ const WorkClient = forwardRef(function WorkClient({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                 <input type="text" placeholder="Vendor Name" value={v.name} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, name: e.target.value } : vi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
                 <input type="text" placeholder="Vendor Person Name" value={v.parentName} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, parentName: e.target.value } : vi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="date" max={MAX_DATE} placeholder="Start Date" value={toDateInputValue(v.startDate)} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, startDate: e.target.value } : vi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="date" max={MAX_DATE} placeholder="End Date" value={toDateInputValue(v.endDate)} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, endDate: e.target.value } : vi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
                 <input type="text" placeholder="Vendor Address" value={v.address} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, address: e.target.value } : vi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
                 <input type="email" placeholder="Vendor Email" value={v.email} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, email: e.target.value } : vi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
 
@@ -481,11 +575,9 @@ const WorkClient = forwardRef(function WorkClient({
                     className="border rounded px-2 py-2 text-sm bg-white shrink-0"
                     disabled={isReadOnly}
                   >
-                    <option value="+91">🇮🇳 India (+91)</option>
-                    <option value="+1">🇺🇸 USA (+1)</option>
-                    <option value="+1-CA">🇨🇦 Canada (+1)</option>
-                    <option value="+44">🇬🇧 UK (+44)</option>
-                    <option value="+61">🇦🇺 Australia (+61)</option>
+                    <option value="+1">US (+1)</option>
+                    <option value="+1">Canada (+1)</option>
+                    <option value="+91">India (+91)</option>
                   </select>
                   <input
                     type="tel"
@@ -531,14 +623,15 @@ const WorkClient = forwardRef(function WorkClient({
 
               <div className="flex items-center justify-between mb-2 gap-4">
                 <div className="flex flex-col flex-1">
-                  <FileUploadField
-                    label="Document Upload:"
-                    value={v.docFile}
-                    onChange={file => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, docFile: file } : vi))}
+                  <EmployerDocumentUpload
+                    documentFiles={v.docFiles}
+                    onChange={files => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, docFiles: files } : vi))}
                     employeeId={targetEmployeeId || user?.employeeId || user?.id}
                     category={`work_${employerType}_${employerIndex}_vendor_${idx}_doc`}
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Vendor ${idx + 1} Document`}
-                    disabled={isReadOnly}
+                    disabled={areDocumentsReadOnly}
+                    isAdmin={isAdminViewer}
+                    note="Vendor letter and appreciation documents needed."
                   />
                 </div>
                 <div className="flex justify-between items-center mt-2">
@@ -564,11 +657,9 @@ const WorkClient = forwardRef(function WorkClient({
             <div key={idx} className={`mb-4 pb-4 ${idx !== primeInfo.length - 1 ? 'border-b' : ''}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
                 <input type="text" placeholder="Prime Vendor Name" value={p.name} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, name: e.target.value } : pi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="date" max={MAX_DATE} placeholder="Start Date" value={toDateInputValue(p.startDate)} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, startDate: e.target.value } : pi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-                <input type="date" max={MAX_DATE} placeholder="End Date" value={toDateInputValue(p.endDate)} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, endDate: e.target.value } : pi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
                 <input type="text" placeholder="Prime Vendor Address" value={p.address} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, address: e.target.value } : pi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
                 <input type="email" placeholder="Prime Vendor Email" value={p.email} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, email: e.target.value } : pi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
-
+                <input type="email" placeholder="Employee Work Email ID" value={p.workEmail || ""} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, workEmail: e.target.value } : pi))} className="border rounded px-3 py-2 text-sm w-full max-w-md" disabled={isReadOnly} />
                 {/* Prime Vendor Phone with Country Code */}
                 <div className="flex gap-2 w-full max-w-md">
                   <select
@@ -577,11 +668,9 @@ const WorkClient = forwardRef(function WorkClient({
                     className="border rounded px-2 py-2 text-sm bg-white shrink-0"
                     disabled={isReadOnly}
                   >
-                    <option value="+91">🇮🇳 India (+91)</option>
-                    <option value="+1">🇺🇸 USA (+1)</option>
-                    <option value="+1-CA">🇨🇦 Canada (+1)</option>
-                    <option value="+44">🇬🇧 UK (+44)</option>
-                    <option value="+61">🇦🇺 Australia (+61)</option>
+                    <option value="+1">US (+1)</option>
+                    <option value="+1">Canada (+1)</option>
+                    <option value="+91">India (+91)</option>
                   </select>
                   <input
                     type="tel"
@@ -590,6 +679,33 @@ const WorkClient = forwardRef(function WorkClient({
                     onChange={e => {
                       const val = e.target.value.replace(/\D/g, "").slice(0, 10);
                       setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, phone: val } : pi));
+                    }}
+                    maxLength={10}
+                    className="border rounded px-3 py-2 text-sm flex-1 min-w-0"
+                    disabled={isReadOnly}
+                  />
+                </div>
+
+                {/* Employee Work Phone with Country Code */}
+                <div className="flex gap-2 w-full max-w-md">
+                  <select
+                    aria-label="Employee Work Phone Country Code"
+                    value={p.workPhoneCountryCode || "+1"}
+                    onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, workPhoneCountryCode: e.target.value } : pi))}
+                    className="border rounded px-2 py-2 text-sm bg-white shrink-0"
+                    disabled={isReadOnly}
+                  >
+                    <option value="+1">US (+1)</option>
+                    <option value="+1">Canada (+1)</option>
+                    <option value="+91">India (+91)</option>
+                  </select>
+                  <input
+                    type="tel"
+                    placeholder="Employee Work Phone Number"
+                    value={p.workPhone || ""}
+                    onChange={e => {
+                      const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                      setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, workPhone: val } : pi));
                     }}
                     maxLength={10}
                     className="border rounded px-3 py-2 text-sm flex-1 min-w-0"
@@ -624,14 +740,15 @@ const WorkClient = forwardRef(function WorkClient({
               )}
               <div className="flex items-center justify-between mb-2 gap-4">
                 <div className="flex flex-col flex-1">
-                  <FileUploadField
-                    label="Document Upload:"
-                    value={p.docFile}
-                    onChange={file => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, docFile: file } : pi))}
+                  <EmployerDocumentUpload
+                    documentFiles={p.docFiles}
+                    onChange={files => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, docFiles: files } : pi))}
                     employeeId={targetEmployeeId || user?.employeeId || user?.id}
                     category={`work_${employerType}_${employerIndex}_prime_${idx}_doc`}
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Prime Vendor ${idx + 1} Document`}
-                    disabled={isReadOnly}
+                    disabled={areDocumentsReadOnly}
+                    isAdmin={isAdminViewer}
+                    note="Prime Vendor letter and appreciation documents needed."
                   />
                 </div>
                 <div className="flex justify-between items-center mt-2">

@@ -26,8 +26,11 @@ const Kid = sequelize.define('Kid', {
   address_same: DataTypes.BOOLEAN,
   address: DataTypes.JSONB,
   passportFile: DataTypes.JSONB,
+  passportFile2: DataTypes.JSONB,
   docFile: DataTypes.JSONB,
   docFile2: DataTypes.JSONB,
+  i9File: DataTypes.JSONB,
+  w4File: DataTypes.JSONB,
   kid_address_id: DataTypes.INTEGER,
 }, {
   tableName: 'Kid',

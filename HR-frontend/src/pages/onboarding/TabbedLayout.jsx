@@ -2,7 +2,6 @@ import React, { useState, useMemo } from "react";
 import { useAuth } from "../../hooks/useAuth";
 //import EmpLayout from '../../emp/EmpLayout';
 import EmpPersonalDetails from "./EmpPersonalDetails";
-import OnboardDocs from "./OnboardDocs";
 import WorkClient from "./WorkClient";
 import Education from "./Education";
 import ProfileWork from "./ProfileWork";
@@ -17,7 +16,6 @@ import ProfileInfo from "./EmpPersonalDetails";
 
 const ALL_TABS = [
     "Personal Info",
-    "Onboard Docs",
     "Work Info",
     "Education",
     "Resume & Skills",
@@ -40,8 +38,6 @@ export default function EmpOnboard() {
         switch (activeTab) {
             case "Personal Info":
                 return <ProfileInfo isEditable={true} />;
-            case "Onboard Docs":
-                return <OnboardDocs />;
             case "Work Info":
                 return <ProfileWork />;
             case "Education":

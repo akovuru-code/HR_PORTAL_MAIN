@@ -424,6 +424,7 @@ export default function ProfileWork() {
   const {
     canEdit,
     onboardingSubmitted,
+    canEditDocuments,
     handleSubmit,
     requestPermission,
     showPermissionModal,
@@ -435,6 +436,7 @@ export default function ProfileWork() {
     pageKey,
     "profileWork"
   );
+  const areDocumentsReadOnly = !canEditDocuments;
 
   /*
    * ============================================================
@@ -559,6 +561,7 @@ export default function ProfileWork() {
       ) {
         if (file?.url) {
           registerDocument({
+            employeeId,
             name,
             url: file.url,
             filename: file.filename,
@@ -1040,6 +1043,22 @@ export default function ProfileWork() {
     }
   };
 
+  const handleEmployerDocumentChange = (type, idx, file) => {
+    handleEmployerChange(type, idx, 'docFile', file);
+    const documentType = `${type}_employer_${idx}`;
+    if (file?.url) {
+      registerDocument({
+        employeeId,
+        name: `${type === 'present' ? 'Present' : 'Previous'} Employer ${idx + 1} Document`,
+        url: file.url,
+        filename: file.filename,
+        originalName: file.originalName,
+        document_type: documentType,
+        fileData: file,
+      }).catch(() => {});
+    }
+  };
+
   /*
    * IMPORTANT:
    * Nested details are updated inside the selected employer.
@@ -1403,6 +1422,7 @@ export default function ProfileWork() {
   const isReadOnly =
     onboardingSubmitted &&
     !canEdit;
+  const canSaveOrSubmit = !onboardingSubmitted || canEdit || canEditDocuments;
 
   /*
    * ============================================================
@@ -1480,9 +1500,7 @@ export default function ProfileWork() {
                               )
                             }
                             className="border rounded px-2 py-1 flex-1"
-                            disabled={
-                              isReadOnly
-                            }
+                            disabled={isReadOnly}
                           />
 
                           <input
@@ -1503,17 +1521,15 @@ export default function ProfileWork() {
                               )
                             }
                             className="border rounded px-2 py-1 flex-1"
-                            disabled={
-                              isReadOnly
-                            }
+                            disabled={isReadOnly}
                           />
 
                         </div>
 
                         <div className="flex gap-2 mb-2">
 
-                          <input
-                            type="date"
+                          <input type="date"
+                            
                             value={toDateInputValue(
                               emp.startDate
                             )}
@@ -1536,8 +1552,8 @@ export default function ProfileWork() {
                             }
                           />
 
-                          <input
-                            type="date"
+                          <input type="date"
+                            
                             value={toDateInputValue(
                               emp.endDate
                             )}
@@ -1580,16 +1596,9 @@ export default function ProfileWork() {
                             onChange={(
                               fileInfo
                             ) =>
-                              handleEmployerChange(
-                                "present",
-                                idx,
-                                "docFile",
-                                fileInfo
-                              )
+                              handleEmployerDocumentChange("present", idx, fileInfo)
                             }
-                            disabled={
-                              isReadOnly
-                            }
+                            disabled={areDocumentsReadOnly}
                           />
 
                           <EmpTypography.small className="text-gray-500 mt-1">
@@ -1664,7 +1673,7 @@ export default function ProfileWork() {
 
                         {/* CLIENT */}
 
-                        <div>
+                        <div className="order-3">
 
                           <EmpTypography.label>
                             Client Details:
@@ -1702,8 +1711,8 @@ export default function ProfileWork() {
                               Start Date:
                             </EmpTypography.h2>
 
-                            <input
-                              type="date"
+                            <input type="date"
+                              
                               value={toDateInputValue(
                                 emp.client
                                   ?.startDate
@@ -1736,8 +1745,8 @@ export default function ProfileWork() {
                               End Date:
                             </EmpTypography.h2>
 
-                            <input
-                              type="date"
+                            <input type="date"
+                              
                               value={toDateInputValue(
                                 emp.client
                                   ?.endDate
@@ -1786,7 +1795,7 @@ export default function ProfileWork() {
 
                         {/* VENDOR */}
 
-                        <div>
+                        <div className="order-1">
 
                           <EmpTypography.label>
                             Vendor Details:
@@ -1824,8 +1833,8 @@ export default function ProfileWork() {
                               Start Date:
                             </EmpTypography.h2>
 
-                            <input
-                              type="date"
+                            <input type="date"
+                              
                               value={toDateInputValue(
                                 emp.vendor
                                   ?.startDate
@@ -1858,8 +1867,8 @@ export default function ProfileWork() {
                               End Date:
                             </EmpTypography.h2>
 
-                            <input
-                              type="date"
+                            <input type="date"
+                              
                               value={toDateInputValue(
                                 emp.vendor
                                   ?.endDate
@@ -1908,7 +1917,7 @@ export default function ProfileWork() {
 
                         {/* PRIME VENDOR */}
 
-                        <div>
+                        <div className="order-2">
 
                           <EmpTypography.label>
                             Prime Vendor Details:
@@ -1947,8 +1956,8 @@ export default function ProfileWork() {
                               Start Date:
                             </EmpTypography.h2>
 
-                            <input
-                              type="date"
+                            <input type="date"
+                              
                               value={toDateInputValue(
                                 emp
                                   .primeVendor
@@ -1982,8 +1991,8 @@ export default function ProfileWork() {
                               End Date:
                             </EmpTypography.h2>
 
-                            <input
-                              type="date"
+                            <input type="date"
+                              
                               value={toDateInputValue(
                                 emp
                                   .primeVendor
@@ -2067,6 +2076,7 @@ export default function ProfileWork() {
                             employerIndex={
                               idx
                             }
+                            documentsReadOnly={areDocumentsReadOnly}
                             draftTab={`workClient-present-${idx}`}
                             useParentDataOnly
                           />
@@ -2146,9 +2156,7 @@ export default function ProfileWork() {
                         )
                       }
                       className="border rounded px-2 py-1 flex-1"
-                      disabled={
-                        isReadOnly
-                      }
+                      disabled={isReadOnly}
                     />
 
                     <input
@@ -2169,9 +2177,7 @@ export default function ProfileWork() {
                         )
                       }
                       className="border rounded px-2 py-1 flex-1"
-                      disabled={
-                        isReadOnly
-                      }
+                      disabled={isReadOnly}
                     />
 
                   </div>
@@ -2180,8 +2186,8 @@ export default function ProfileWork() {
 
                   <div className="flex gap-2 mb-2">
 
-                    <input
-                      type="date"
+                    <input type="date"
+                      
                       value={toDateInputValue(
                         emp.startDate
                       )}
@@ -2204,8 +2210,8 @@ export default function ProfileWork() {
                       }
                     />
 
-                    <input
-                      type="date"
+                    <input type="date"
+                      
                       value={toDateInputValue(
                         emp.endDate
                       )}
@@ -2248,16 +2254,9 @@ export default function ProfileWork() {
                       onChange={(
                         fileInfo
                       ) =>
-                        handleEmployerChange(
-                          "previous",
-                          idx,
-                          "docFile",
-                          fileInfo
-                        )
+                        handleEmployerDocumentChange("previous", idx, fileInfo)
                       }
-                      disabled={
-                        isReadOnly
-                      }
+                      disabled={areDocumentsReadOnly}
                     />
 
                     <EmpTypography.small className="text-gray-500 mt-1">
@@ -2282,9 +2281,9 @@ export default function ProfileWork() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {[
-                      ["Client", "client", "Enter client name"],
                       ["Vendor", "vendor", "Enter vendor name"],
                       ["Prime Vendor", "primeVendor", "Enter prime vendor name"],
+                      ["Client", "client", "Enter client name"],
                     ].map(([label, detailType, placeholder]) => (
                       <div key={detailType}>
                         <EmpTypography.label>{label} Details:</EmpTypography.label>
@@ -2308,8 +2307,8 @@ export default function ProfileWork() {
 
                         <div>
                           <EmpTypography.h2>Start Date:</EmpTypography.h2>
-                          <input
-                            type="date"
+                          <input type="date"
+                            
                             value={toDateInputValue(emp[detailType]?.startDate)}
                             min="1900-01-01"
                             max="9999-12-31"
@@ -2329,8 +2328,8 @@ export default function ProfileWork() {
 
                         <div>
                           <EmpTypography.h2>End Date:</EmpTypography.h2>
-                          <input
-                            type="date"
+                          <input type="date"
+                            
                             value={toDateInputValue(emp[detailType]?.endDate)}
                             min="1900-01-01"
                             max="9999-12-31"
@@ -2380,6 +2379,7 @@ export default function ProfileWork() {
                         parentPrimeVendor={activeEmployerDetails.primeVendor}
                         employerType="previous"
                         employerIndex={idx}
+                        documentsReadOnly={areDocumentsReadOnly}
                         draftTab={`workClient-previous-${idx}`}
                         detailType={activeEmployerDetails.detailType}
                         useParentDataOnly
@@ -2465,6 +2465,7 @@ export default function ProfileWork() {
               }
               employerType="standalone"
               employerIndex={-1}
+              documentsReadOnly={areDocumentsReadOnly}
               draftTab="workClient"
               useParentDataOnly
             />
@@ -2489,8 +2490,7 @@ export default function ProfileWork() {
       <div className="flex justify-end mt-4 gap-2">
 
         {(
-          !onboardingSubmitted ||
-          canEdit
+          canSaveOrSubmit
         ) && (
             <EmpTypography.button
               variant="primary"
@@ -2508,8 +2508,7 @@ export default function ProfileWork() {
           )}
 
         {(
-          !onboardingSubmitted ||
-          canEdit
+          canSaveOrSubmit
         ) && (
             <EmpTypography.button
               variant="primary"
@@ -2527,7 +2526,7 @@ export default function ProfileWork() {
           )}
 
         {onboardingSubmitted &&
-          !canEdit &&
+          !canEditDocuments &&
           !permissionGranted && (
             <EmpTypography.button
               variant="primary"

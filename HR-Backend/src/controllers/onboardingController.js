@@ -16,6 +16,10 @@ const Evaluation = require('../models/evaluation');
 const WorkEmployer = require('../models/workEmployer');
 const WorkClientDetail = require('../models/workClientDetail');
 const { collectWorkClientDrafts, buildWorkClientRows } = require('../utils/workClientPersistence');
+const { persistEducation } = require('../utils/educationPersistence');
+const { visibleDocumentFiles, protectAdminDocumentFiles, preserveAdminDocuments, mapDraftDocuments } = require('../utils/workClientDocumentVisibility');
+const { hideAdminUploadedFiles } = require('../utils/onboardingFileVisibility');
+const { employeeUploadedDocument } = require('../utils/documentVisibility');
 
 // Associations for role sections
 RoleSection.hasMany(ResumeUpload, { foreignKey: 'role_section_id', as: 'resumeUploads' });
@@ -43,7 +47,20 @@ Document.belongsTo(Employee, { foreignKey: 'employee_id' });
 
 // Helpers
 function isAdmin(user) {
-    return user && (user.role === 'admin' || user.role === 'hr');
+    const role = String(user?.accountType || user?.role || '').toLowerCase();
+    return ['admin', 'root_admin', 'hr'].includes(role);
+}
+
+function isSubmittedTab(value) {
+    return value === true || (value && typeof value === 'object' && value.submitted === true);
+}
+
+function workClientDocumentKey(row, fallbackIndexes) {
+    const meta = row.meta || {};
+    const base = `${row.type}|${meta.employerType || 'standalone'}|${meta.employerIndex ?? -1}`;
+    const detailIndex = meta.detailIndex ?? fallbackIndexes.get(base) ?? 0;
+    fallbackIndexes.set(base, Number(detailIndex) + 1);
+    return `${base}|${detailIndex}`;
 }
 
 // GET /api/onboarding/:employeeId
@@ -87,7 +104,31 @@ exports.getOnboarding = async (req, res) => {
         // Build draft map by tab for backward compat
         const draftMap = {};
         for (const d of drafts) draftMap[d.tab] = d;
-        res.json({ employee, draft: draftMap['personal'] || null, drafts: draftMap, roleSections, educations, evaluations, workEmployers, workClientDetails });
+        const visibleWorkClientDetails = isAdmin(req.user) ? workClientDetails : workClientDetails.map(row => ({
+            ...row.toJSON(),
+            doc_file: visibleDocumentFiles(row.doc_file, req.user, id),
+        }));
+        if (isAdmin(req.user)) {
+            return res.json({ employee, draft: draftMap['personal'] || null, drafts: draftMap, roleSections, educations, evaluations, workEmployers, workClientDetails: visibleWorkClientDetails });
+        }
+        const visibleEmployee = employee ? employee.toJSON() : employee;
+        if (visibleEmployee?.Documents) {
+            visibleEmployee.Documents = visibleEmployee.Documents.filter(document => employeeUploadedDocument(document, id));
+        }
+        const visibleDraftMap = Object.fromEntries(Object.entries(draftMap).map(([tab, draft]) => [
+            tab,
+            { ...draft.toJSON(), data: hideAdminUploadedFiles(draft.data) },
+        ]));
+        res.json({
+            employee: hideAdminUploadedFiles(visibleEmployee),
+            draft: visibleDraftMap.personal || null,
+            drafts: visibleDraftMap,
+            roleSections: hideAdminUploadedFiles(roleSections.map(row => row.toJSON())),
+            educations: hideAdminUploadedFiles(educations.map(row => row.toJSON())),
+            evaluations: hideAdminUploadedFiles(evaluations.map(row => row.toJSON())),
+            workEmployers: hideAdminUploadedFiles(workEmployers.map(row => row.toJSON())),
+            workClientDetails: hideAdminUploadedFiles(visibleWorkClientDetails),
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -139,9 +180,12 @@ exports.saveOnboarding = async (req, res) => {
                 dl_expiry: spouse.dlExpiry || null,
                 address: spouse.address || null,
                 passportFile: spouse.passportFile || null,
+                passportFile2: spouse.passportFile2 || null,
                 visaFile: spouse.visaFile || null,
                 visaFile2: spouse.visaFile2 || null,
                 dlFile: spouse.dlFile || null,
+                i9File: spouse.i9File || null,
+                w4File: spouse.w4File || null,
             };
             const [inst] = await Spouse.findOrCreate({ where: { employee_id: id }, defaults: spouseData, transaction: t });
             await inst.update(spouseData, { transaction: t });
@@ -170,8 +214,11 @@ exports.saveOnboarding = async (req, res) => {
                     address_same: k.addressSame || false,
                     address: k.address || null,
                     passportFile: k.passportFile || null,
+                    passportFile2: k.passportFile2 || null,
                     docFile: k.docFile || null,
                     docFile2: k.docFile2 || null,
+                    i9File: k.i9File || null,
+                    w4File: k.w4File || null,
                 };
                 await Kid.create(kidData, { transaction: t });
             }
@@ -242,9 +289,12 @@ exports.submitOnboarding = async (req, res) => {
                 is_spouse_address_same: s.isSpouseAddressSame || s.is_spouse_address_same || false,
                 address: s.address || null,
                 passportFile: s.passportFile || null,
+                passportFile2: s.passportFile2 || null,
                 visaFile: s.visaFile || null,
                 visaFile2: s.visaFile2 || null,
                 dlFile: s.dlFile || null,
+                i9File: s.i9File || null,
+                w4File: s.w4File || null,
             };
             const [inst] = await Spouse.findOrCreate({ where: { employee_id: id }, defaults: spouseData, transaction: t });
             await inst.update(spouseData, { transaction: t });
@@ -269,8 +319,11 @@ exports.submitOnboarding = async (req, res) => {
                     address_same: k.addressSame || k.address_same || false,
                     address: k.address || null,
                     passportFile: k.passportFile || null,
+                    passportFile2: k.passportFile2 || null,
                     docFile: k.docFile || null,
                     docFile2: k.docFile2 || null,
+                    i9File: k.i9File || null,
+                    w4File: k.w4File || null,
                 }, { transaction: t });
             }
         }
@@ -319,44 +372,9 @@ exports.submitOnboarding = async (req, res) => {
 
         // --- Education (tab: 'education') ---
         const eduDraft = draftMap['education'];
-        if (Array.isArray(eduDraft?.payload?.educationList)) {
-            const oldEdus = await EducationModel.findAll({ where: { employee_id: id }, attributes: ['education_id'], transaction: t });
-            const oldEduIds = oldEdus.map(e => e.education_id);
-            if (oldEduIds.length) {
-                await EducationUpload.destroy({ where: { education_id: oldEduIds }, transaction: t });
-                await Certification.destroy({ where: { education_id: oldEduIds }, transaction: t });
-            }
-            await EducationModel.destroy({ where: { employee_id: id }, transaction: t });
-            for (const edu of eduDraft.payload.educationList) {
-                const addr = edu.address || {};
-                const edRecord = await EducationModel.create({
-                    employee_id: id, degree: edu.degree || null,
-                    university: edu.university || null, major: edu.major || null,
-                    start_date: edu.startDate || null, end_date: edu.endDate || null,
-                    street: addr.street || null, city: addr.city || null,
-                    state: addr.state || null, zip_code: addr.zipCode || null,
-                }, { transaction: t });
-                if (edu.docFile && edu.docFile.url) {
-                    await EducationUpload.create({
-                        education_id: edRecord.education_id,
-                        file_name: edu.docFile.filename || edu.docFile.originalName || null,
-                        file_url: edu.docFile.url || null,
-                    }, { transaction: t });
-                }
-            }
-        }
-        if (Array.isArray(eduDraft?.payload?.certList)) {
-            for (const cert of eduDraft.payload.certList) {
-                const firstEdu = await EducationModel.findOne({ where: { employee_id: id }, transaction: t });
-                await Certification.create({
-                    education_id: firstEdu ? firstEdu.education_id : null,
-                    name: cert.name || null, org: cert.org || null,
-                    start_date: cert.startDate || null, end_date: cert.endDate || null,
-                    description: cert.description || null,
-                    file_name: cert.certFile?.filename || cert.certFile?.originalName || null,
-                    file_url: cert.certFile?.url || null,
-                }, { transaction: t });
-            }
+        if (Array.isArray(eduDraft?.payload?.educationList) || Array.isArray(eduDraft?.payload?.certList)) {
+            await persistEducation({ employeeId: id, payload: eduDraft.payload,
+                Education: EducationModel, Upload: EducationUpload, Certification, transaction: t });
         }
 
         // --- Evaluations (inside education tab draft) ---
@@ -413,8 +431,24 @@ exports.submitOnboarding = async (req, res) => {
         const workClientDrafts = collectWorkClientDrafts(draftMap, workDraft);
 
         if (workDraft?.payload || workClientDrafts.length > 0) {
-            await WorkClientDetail.destroy({ where: { employee_id: id }, transaction: t });
+            const existingWorkClientDetails = await WorkClientDetail.findAll({
+                where: { employee_id: id }, order: [['id', 'ASC']], transaction: t,
+            });
             const workClientRows = buildWorkClientRows(workClientDrafts, id);
+            const existingDocs = new Map();
+            const oldIndexes = new Map();
+            for (const detail of existingWorkClientDetails) {
+                if (!['client', 'vendor', 'primeVendor'].includes(detail.type)) continue;
+                existingDocs.set(workClientDocumentKey(detail, oldIndexes), detail.doc_file);
+            }
+            const newIndexes = new Map();
+            if (!isAdmin(req.user)) {
+                for (const row of workClientRows) {
+                    if (!['client', 'vendor', 'primeVendor'].includes(row.type)) continue;
+                    row.doc_file = protectAdminDocumentFiles(existingDocs.get(workClientDocumentKey(row, newIndexes)), row.doc_file);
+                }
+            }
+            await WorkClientDetail.destroy({ where: { employee_id: id }, transaction: t });
             for (const row of workClientRows) {
                 await WorkClientDetail.create(row, { transaction: t });
             }
@@ -433,6 +467,31 @@ exports.submitOnboarding = async (req, res) => {
             if (Object.keys(updateFields).length > 0) {
                 await Employee.update(updateFields, { where: { employee_id: id }, transaction: t });
             }
+            if (ob.spouseDocs) {
+                const [spouse] = await Spouse.findOrCreate({
+                    where: { employee_id: id },
+                    defaults: { employee_id: id },
+                    transaction: t,
+                });
+                await spouse.update({
+                    i9File: ob.spouseDocs.i9File || null,
+                    w4File: ob.spouseDocs.w4File || null,
+                }, { transaction: t });
+            }
+            if (Array.isArray(ob.kidDocs)) {
+                const kids = await Kid.findAll({
+                    where: { employee_id: id },
+                    order: [['kid_id', 'ASC']],
+                    transaction: t,
+                });
+                for (const [index, kidDocs] of ob.kidDocs.entries()) {
+                    if (!kids[index]) continue;
+                    await kids[index].update({
+                        i9File: kidDocs.i9File || null,
+                        w4File: kidDocs.w4File || null,
+                    }, { transaction: t });
+                }
+            }
         }
 
         // Delete all drafts for this employee
@@ -446,8 +505,10 @@ exports.submitOnboarding = async (req, res) => {
         const submittedTab = req.body?.tab;
         const emp = await Employee.findByPk(id, { transaction: t });
         const currentTabs = emp?.submittedTabs || {};
-        const updatedTabs = submittedTab ? { ...currentTabs, [submittedTab]: true } : currentTabs;
-        const allDone = REQUIRED_TABS.every(tab => updatedTabs[tab]);
+        const updatedTabs = submittedTab
+            ? { ...currentTabs, [submittedTab]: { submitted: true, submittedBy: isAdmin(req.user) ? 'admin' : 'employee' } }
+            : currentTabs;
+        const allDone = REQUIRED_TABS.every(tab => isSubmittedTab(updatedTabs[tab]));
         await Employee.update(
             {
                 submittedTabs: updatedTabs,
@@ -537,10 +598,13 @@ exports.saveDraft = async (req, res) => {
     try {
         const { payload, spouse, kids, documents, tab } = req.body || {};
         const tabKey = tab || 'personal';
-        const data = { payload: payload || {}, spouse: spouse || null, kids: kids || [], documents: documents || [] };
+        let data = { payload: payload || {}, spouse: spouse || null, kids: kids || [], documents: documents || [] };
         // Upsert by (employeeId, tab) — each tab has its own draft
         const existing = await OnboardingDraft.findOne({ where: { employeeId: id, tab: tabKey } });
         let stored;
+        if (!isAdmin(req.user) && /^workClient(?:-|$)/.test(tabKey)) {
+            data = preserveAdminDocuments(existing?.data, data);
+        }
         if (existing) {
             await OnboardingDraft.update({ data }, { where: { id: existing.id } });
             stored = await OnboardingDraft.findOne({ where: { id: existing.id } });
@@ -565,12 +629,23 @@ exports.getDraft = async (req, res) => {
         if (tab) {
             const draft = await OnboardingDraft.findOne({ where: { employeeId: id, tab } });
             if (!draft) return res.status(404).json({ error: 'Draft not found' });
+            if (!isAdmin(req.user)) {
+                const data = /^workClient(?:-|$)/.test(tab)
+                    ? mapDraftDocuments(draft.data, value => visibleDocumentFiles(value, req.user, id))
+                    : draft.data;
+                return res.json({ draft: { ...draft.toJSON(), data: hideAdminUploadedFiles(data) } });
+            }
             return res.json({ draft });
         }
         // Return all drafts for this employee
         const drafts = await OnboardingDraft.findAll({ where: { employeeId: id } });
         if (!drafts.length) return res.status(404).json({ error: 'Draft not found' });
-        res.json({ drafts });
+        res.json({ drafts: !isAdmin(req.user) ? drafts.map(draft => {
+            const data = /^workClient(?:-|$)/.test(draft.tab)
+                ? mapDraftDocuments(draft.data, value => visibleDocumentFiles(value, req.user, id))
+                : draft.data;
+            return { ...draft.toJSON(), data: hideAdminUploadedFiles(data) };
+        }) : drafts });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -16,6 +16,18 @@ function formatSize(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function documentCategory(document) {
+    if (document.fileData?.categoryType) return document.fileData.categoryType;
+    const source = String(document.document_type || "").toLowerCase();
+    if (source.startsWith("present_employer_") || source.startsWith("previous_employer_") || source.startsWith("work_") || source.startsWith("onboard_doc_")) return "work";
+    if (source.includes("visa") || source.endsWith("_i9") || source.endsWith("_w4") || source.startsWith("onboard_kid_")) return "visa";
+    return "personal";
+}
+
+function categoryLabel(category) {
+    return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
 function EditModal({ open, document, onClose, onSave }) {
     const [name, setName] = useState("");
     const [expiry, setExpiry] = useState("");
@@ -60,7 +72,7 @@ function EditModal({ open, document, onClose, onSave }) {
                 updates.url = fileInfo.url;
                 updates.filename = fileInfo.filename;
                 updates.originalName = fileInfo.originalName;
-                updates.fileData = { ...fileInfo, size: newFile.size };
+                updates.fileData = { ...fileInfo, size: newFile.size, categoryType: documentCategory(document) };
             }
             await onSave(document.document_id, updates);
             onClose();
@@ -142,10 +154,12 @@ export default function AdminDocuments() {
     const [selectedFile, setSelectedFile] = useState(null);
     const [docName, setDocName] = useState("");
     const [expiry, setExpiry] = useState("");
+    const [categoryType, setCategoryType] = useState("personal");
     const [dragActive, setDragActive] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
+    const [filterCategory, setFilterCategory] = useState("");
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [docToDelete, setDocToDelete] = useState(null);
     const [editModalOpen, setEditModalOpen] = useState(false);
@@ -211,7 +225,7 @@ export default function AdminDocuments() {
             const employeeId = getAdminEmployeeId();
             const formData = new FormData();
             formData.append("file", selectedFile);
-            formData.append("category", "admin_doc");
+            formData.append("category", `admin_${categoryType}`);
             const uploadRes = await api.post(`/local-upload/${employeeId}`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
@@ -221,13 +235,14 @@ export default function AdminDocuments() {
                 url: fileInfo.url,
                 filename: fileInfo.filename,
                 originalName: fileInfo.originalName,
-                document_type: "admin_doc",
+                document_type: `admin_${categoryType}_${Date.now()}`,
                 expiry: expiry || null,
-                fileData: { ...fileInfo, size: selectedFile.size },
+                fileData: { ...fileInfo, size: selectedFile.size, categoryType },
             });
             setSelectedFile(null);
             setDocName("");
             setExpiry("");
+            setCategoryType("personal");
             if (inputRef.current) inputRef.current.value = "";
             fetchDocs();
         } catch (err) {
@@ -258,6 +273,7 @@ export default function AdminDocuments() {
         const uploadDate = doc.createdAt?.split("T")[0] || "";
         if (dateFrom && uploadDate < dateFrom) return false;
         if (dateTo && uploadDate > dateTo) return false;
+        if (filterCategory && documentCategory(doc) !== filterCategory) return false;
         return true;
     });
 
@@ -300,6 +316,14 @@ export default function AdminDocuments() {
                                 <input type="text" className="w-full border rounded px-3 py-2 mt-1" value={docName} onChange={e => setDocName(e.target.value)} placeholder="Enter document name" />
                             </div>
                             <div className="w-48">
+                                <AdminTypography.label>Category Type</AdminTypography.label>
+                                <select className="w-full border rounded px-3 py-2 mt-1" value={categoryType} onChange={event => setCategoryType(event.target.value)}>
+                                    <option value="personal">Personal</option>
+                                    <option value="work">Work</option>
+                                    <option value="visa">Visa</option>
+                                </select>
+                            </div>
+                            <div className="w-48">
                                 <AdminTypography.label>Expiry Date (optional)</AdminTypography.label>
                                 <input
                                     type="date"
@@ -339,7 +363,16 @@ export default function AdminDocuments() {
                         <input type="date" value={dateTo} min={dateFrom || undefined}
                             onChange={handleDateChange(setDateTo)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                     </div>
-                    <button onClick={() => { setSearchQuery(""); setDateFrom(""); setDateTo(""); }} className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded text-sm">
+                    <div>
+                        <AdminTypography.label className="text-xs mb-1 block">Category</AdminTypography.label>
+                        <select value={filterCategory} onChange={event => setFilterCategory(event.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="">All categories</option>
+                            <option value="personal">Personal</option>
+                            <option value="work">Work</option>
+                            <option value="visa">Visa</option>
+                        </select>
+                    </div>
+                    <button onClick={() => { setSearchQuery(""); setDateFrom(""); setDateTo(""); setFilterCategory(""); }} className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded text-sm">
                         Clear
                     </button>
                 </div>
@@ -360,6 +393,8 @@ export default function AdminDocuments() {
                                 <th className="px-5 py-3">Document Name</th>
                                 <th className="px-5 py-3">Size</th>
                                 <th className="px-5 py-3">Expiry</th>
+                                <th className="px-5 py-3">Category</th>
+                                <th className="px-5 py-3">Uploader</th>
                                 <th className="px-5 py-3">Uploaded By</th>
                                 <th className="px-5 py-3">Upload Date</th>
                                 <th className="px-5 py-3 text-center">Actions</th>
@@ -372,6 +407,8 @@ export default function AdminDocuments() {
                                     <td className="px-5 py-3 font-medium">{doc.name || doc.originalName || "—"}</td>
                                     <td className="px-5 py-3 text-gray-500">{formatSize(doc.fileData?.size)}</td>
                                     <td className="px-5 py-3 text-gray-500">{doc.expiry || "—"}</td>
+                                    <td className="px-5 py-3">{categoryLabel(documentCategory(doc))}</td>
+                                    <td className="px-5 py-3">{doc.fileData?.uploadedBy?.role === "admin" ? "Admin" : "Employee"}</td>
                                     <td className="px-5 py-3">{doc.modifiedBy || "—"}</td>
                                     <td className="px-5 py-3">{doc.createdAt?.split("T")[0] || "—"}</td>
                                     <td className="px-5 py-3 text-center">

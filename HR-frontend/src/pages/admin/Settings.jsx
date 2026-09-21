@@ -135,11 +135,9 @@ export default function Settings() {
 
     //Country codes for phone number
     const countryCodes = [
-        { code: "+91", short: "IND" },
-        { code: "+1", short: "USA" },
-        { code: "+1", short: "CA" },
-        { code: "+44", short: "UK" },
-        { code: "+61", short: "AUS" },
+        { code: "+1", country: "US" },
+        { code: "+1", country: "Canada" },
+        { code: "+91", country: "India" },
     ];
 
     // Profile fields

@@ -133,11 +133,9 @@ export default function EmployeeSettings() {
 
     //Country codes for phone number
     const countryCodes = [
-        { value: "IN", code: "+91", country: "IND" },
-        { value: "US", code: "+1", country: "USA" },
-        { value: "CA", code: "+1", country: "CA" },
-        { value: "GB", code: "+44", country: "UK" },
-        { value: "AU", code: "+61", country: "AUS" },
+        { value: "US", code: "+1", country: "US" },
+        { value: "CA", code: "+1", country: "Canada" },
+        { value: "IN", code: "+91", country: "India" },
     ];
 
     const splitPhone = (value, savedCountry) => {

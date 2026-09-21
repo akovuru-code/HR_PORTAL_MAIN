@@ -14,7 +14,6 @@ import { useAuth } from '../../hooks/useAuth';
 
 const TABS = [
   "Personal Info",
-  "Onboard Docs",
   "Work Info",
   "Education",
   "Resume & Skills",

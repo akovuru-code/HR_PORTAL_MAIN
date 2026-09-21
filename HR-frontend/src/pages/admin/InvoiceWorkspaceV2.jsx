@@ -143,17 +143,17 @@ export default function InvoiceWorkspaceV2({ employeeId: scopedEmployeeId }) {
     if (name === 'currency') setCurrencyManuallySelected(true);
     if (name === 'invoiceNumber' && String(value).trim()) setInvoiceNumberError('');
     setForm(current => {
-    const next = { ...current, [name]: value };
-    if (name === 'companyId') next.templateName = lookups.companies.find(company => String(company.id) === String(value))?.templateName || '';
-    if (name === 'invoiceDate' || name === 'paymentTerms' || name === 'customPaymentDays') {
-      const days = name === 'paymentTerms' ? terms[value] : (current.paymentTerms === 'Custom' ? (name === 'customPaymentDays' ? value : current.customPaymentDays) : terms[current.paymentTerms]);
-      next.dueDate = dateAfter(name === 'invoiceDate' ? value : current.invoiceDate, days);
-    }
-    if (['dueDate', 'invoiceDate', 'paymentTerms', 'customPaymentDays', 'billingFrequency'].includes(name)) {
-      const previous = automaticInvoiceDescription(current.employeeName, current.billingFrequency);
-      const description = automaticInvoiceDescription(current.employeeName, next.billingFrequency);
-      if (!current.items[0].description || current.items[0].description === previous) next.items = [{ ...current.items[0], description }];
-    }
+      const next = { ...current, [name]: value };
+      if (name === 'companyId') next.templateName = lookups.companies.find(company => String(company.id) === String(value))?.templateName || '';
+      if (name === 'invoiceDate' || name === 'paymentTerms' || name === 'customPaymentDays') {
+        const days = name === 'paymentTerms' ? terms[value] : (current.paymentTerms === 'Custom' ? (name === 'customPaymentDays' ? value : current.customPaymentDays) : terms[current.paymentTerms]);
+        next.dueDate = dateAfter(name === 'invoiceDate' ? value : current.invoiceDate, days);
+      }
+      if (['dueDate', 'invoiceDate', 'paymentTerms', 'customPaymentDays', 'billingFrequency'].includes(name)) {
+        const previous = automaticInvoiceDescription(current.employeeName, current.billingFrequency);
+        const description = automaticInvoiceDescription(current.employeeName, next.billingFrequency);
+        if (!current.items[0].description || current.items[0].description === previous) next.items = [{ ...current.items[0], description }];
+      }
       return next;
     });
   };

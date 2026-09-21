@@ -1193,7 +1193,6 @@ router.patch('/documents/:id', authenticateToken, requireApprovedEdit('document'
 router.get('/documents', authenticateToken, async (req, res) => {
   try {
     const docs = await Document.findAll({
-      where: { document_type: 'admin_doc' },
       order: [['document_id', 'DESC']],
     });
     res.json({ documents: docs });

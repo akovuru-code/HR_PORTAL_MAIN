@@ -30,9 +30,12 @@ const Spouse = sequelize.define('Spouse', {
   is_spouse_address_same: DataTypes.BOOLEAN,
   address: DataTypes.JSONB,
   passportFile: DataTypes.JSONB,
+  passportFile2: DataTypes.JSONB,
   visaFile: DataTypes.JSONB,
   visaFile2: DataTypes.JSONB,
   dlFile: DataTypes.JSONB,
+  i9File: DataTypes.JSONB,
+  w4File: DataTypes.JSONB,
   spouse_address_id: DataTypes.INTEGER,
 }, {
   tableName: 'Spouse',
