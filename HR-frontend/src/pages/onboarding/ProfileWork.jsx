@@ -1414,92 +1414,6 @@ export default function ProfileWork() {
     <div className="bg-white rounded-2xl border shadow-sm p-6 font-employee">
 
       {/* ========================================================
-          IN PROJECT
-      ======================================================== */}
-
-      <div className="mb-6 flex items-center gap-4">
-
-        <EmpTypography.label>
-          In Project?{" "}
-          <span className="text-red-500">
-            *
-          </span>
-        </EmpTypography.label>
-
-        <label className="flex items-center gap-1">
-          <input
-            type="radio"
-            name="inProject"
-            value="Yes"
-            checked={
-              inProject ===
-              "Yes"
-            }
-            onChange={() => {
-              setInProject("Yes");
-              setProfileStatus(
-                "In Project"
-              );
-
-              saveOnboarding(
-                employeeId,
-                "profileWork",
-                {
-                  profileStatus:
-                    "In Project",
-                }
-              ).catch((err) =>
-                console.error(
-                  err
-                )
-              );
-            }}
-            disabled={
-              isReadOnly
-            }
-          />
-
-          Yes
-        </label>
-
-        <label className="flex items-center gap-1">
-          <input
-            type="radio"
-            name="inProject"
-            value="No"
-            checked={
-              inProject ===
-              "No"
-            }
-            onChange={() => {
-              setInProject("No");
-              setProfileStatus(
-                "On Bench"
-              );
-
-              saveOnboarding(
-                employeeId,
-                "profileWork",
-                {
-                  profileStatus:
-                    "On Bench",
-                }
-              ).catch((err) =>
-                console.error(
-                  err
-                )
-              );
-            }}
-            disabled={
-              isReadOnly
-            }
-          />
-
-          No
-        </label>
-      </div>
-
-      {/* ========================================================
           ORGANIZATION
       ======================================================== */}
 
@@ -1509,8 +1423,7 @@ export default function ProfileWork() {
             PRESENT EMPLOYER
         ====================================================== */}
 
-        {inProject === "Yes" && (
-          <div className="mb-10">
+        <div className="mb-10">
 
             <EmpTypography.label className="text-lg font-bold mb-4">
               Present Employer
@@ -1698,10 +1611,55 @@ export default function ProfileWork() {
                         </div>
                       </div>
 
+                      {/* The existing current-project choice belongs to the
+                          present-employer section and is intentionally shown
+                          once, after its document-upload area. */}
+                      {idx === 0 && (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <EmpTypography.label>
+                            In Project? <span className="text-red-500">*</span>
+                          </EmpTypography.label>
+                          <label className="flex items-center gap-1">
+                            <input
+                              type="radio"
+                              name="inProject"
+                              value="Yes"
+                              checked={inProject === "Yes"}
+                              onChange={() => {
+                                setInProject("Yes");
+                                setProfileStatus("In Project");
+                                saveOnboarding(employeeId, "profileWork", { profileStatus: "In Project" })
+                                  .catch(err => console.error(err));
+                              }}
+                              disabled={isReadOnly}
+                            />
+                            Yes
+                          </label>
+                          <label className="flex items-center gap-1">
+                            <input
+                              type="radio"
+                              name="inProject"
+                              value="No"
+                              checked={inProject === "No"}
+                              onChange={() => {
+                                setInProject("No");
+                                setProfileStatus("On Bench");
+                                saveOnboarding(employeeId, "profileWork", { profileStatus: "On Bench" })
+                                  .catch(err => console.error(err));
+                              }}
+                              disabled={isReadOnly}
+                            />
+                            No
+                          </label>
+                        </div>
+                      )}
+
                       {/* ==================================================
                           PRESENT EMPLOYER CLIENT / VENDOR / PRIME VENDOR
                           ================================================== */}
 
+                      {inProject === "Yes" && (
+                        <>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
                         {/* CLIENT */}
@@ -2115,6 +2073,8 @@ export default function ProfileWork() {
 
                         </div>
                       )}
+                        </>
+                      )}
 
                     </div>
 
@@ -2130,7 +2090,6 @@ export default function ProfileWork() {
             )}
 
           </div>
-        )}
 
         {/* ======================================================
             PREVIOUS EMPLOYER

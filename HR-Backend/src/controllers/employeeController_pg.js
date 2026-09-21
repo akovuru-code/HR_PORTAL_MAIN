@@ -4,6 +4,7 @@ const Spouse = require('../models/spouse');
 const Kid = require('../models/kid');
 const Emergency = require('../models/emergency');
 const Document = require('../models/document');
+const { consumeEditApproval, consumeDeleteApproval } = require('../services/deleteAuthorizationService');
 
 // Get employee by ID (with spouse, kids, documents)
 exports.getEmployee = async (req, res) => {
@@ -74,6 +75,7 @@ exports.updateEmployee = async (req, res) => {
             }
         }
         await t.commit();
+        await consumeEditApproval(req, 'employee', req.params.id);
         const result = await Employee.findByPk(req.params.id, { include: [Spouse, Kid, Document] });
         res.json(result);
     } catch (err) {
@@ -87,6 +89,7 @@ exports.deleteEmployee = async (req, res) => {
     try {
         const deleted = await Employee.destroy({ where: { employee_id: req.params.id } });
         if (!deleted) return res.status(404).json({ error: 'Not found' });
+        await consumeDeleteApproval(req, 'employee', req.params.id);
         res.json({ message: 'Deleted' });
     } catch (err) {
         res.status(500).json({ error: err.message });

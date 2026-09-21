@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import EmpTypography from "../../components/emp/EmpTypography";
-import { getTimesheetEntries, submitTimesheetEntries, getMyProfile } from "../../api/onboarding";
+import { getTimesheetContext, getTimesheetEntries, getTimesheetWeek, saveTimesheetQuickEntry, saveTimesheetWeeklyDetails, saveTimesheetWeeklyStatusReport, submitTimesheetEntries, getMyProfile } from "../../api/onboarding";
 
 // --- Constants & Configuration ---
 const ACCENT_COLOR_BG = "bg-blue-200";
@@ -274,12 +274,33 @@ function MonthView({ currentWeekStart, monthlyEntries, handleDayClick, getDaySta
   );
 }
 
-function WeekView({ projects, grandTotal, weeklyDayTotals, handleEntryChange, setShowAddTimeRow, currentWeekStart }) {
+function WeekView({ projects, grandTotal, weeklyDayTotals, dailyTotalsLoadVersion, handleEntryChange, setShowAddTimeRow, currentWeekStart, isLocked, onQuickTotalChange, onQuickTotalSave, weeklyStatusReport, onWeeklyStatusReportChange, onWeeklyStatusReportSave, saveMessage, clientContext, weeklyProjectName, onWeeklyProjectNameChange, onWeeklyProjectNameSave }) {
   const weekDays = useMemo(() => getWeekDays(currentWeekStart), [currentWeekStart]);
+  const weekStartKey = weekDays[0]?.dateKey;
+  const [dailyDrafts, setDailyDrafts] = useState(() => weeklyDayTotals.map(total => String(total)));
+  useEffect(() => { setDailyDrafts(weeklyDayTotals.map(total => String(total))); }, [weekStartKey, dailyTotalsLoadVersion]);
   const calculateRowTotalImpl = (entries) =>
     entries.reduce((sum, entry) => sum + (parseFloat(entry.rawHours) || 0), 0).toFixed(2);
+  const changeDailyDraft = (index, value) => {
+    if (value !== '' && !/^\d{0,2}(\.\d{0,2})?$/.test(value)) return;
+    setDailyDrafts(prev => prev.map((draft, itemIndex) => itemIndex === index ? value : draft));
+    onQuickTotalChange(weekDays[index].dateKey, value === '' ? 0 : Number(value));
+  };
   return (
-    <div className="overflow-x-auto">
+    <div className="space-y-4">
+      <div className="grid gap-4 border border-gray-200 rounded-lg bg-white p-4 md:grid-cols-2">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Client Name</label>
+          <input value={clientContext?.name || ''} readOnly placeholder={clientContext?.state === 'multiple' ? 'Multiple active clients assigned' : 'No client assigned'} className="w-full p-2.5 border border-gray-300 rounded-md text-sm bg-gray-100 text-gray-700" />
+          {clientContext?.state === 'missing' && <p className="mt-2 text-sm text-amber-700">No client is currently assigned in Work Info. Please contact HR.</p>}
+          {clientContext?.state === 'multiple' && <p className="mt-2 text-sm text-amber-700">Multiple active clients are assigned in Work Info. Please contact HR to set one active client.</p>}
+        </div>
+        <div>
+          <label htmlFor="weekly-project-name" className="block text-sm font-semibold text-gray-700 mb-2">Project Name</label>
+          <input id="weekly-project-name" value={weeklyProjectName} onChange={event => onWeeklyProjectNameChange(event.target.value)} onBlur={onWeeklyProjectNameSave} disabled={isLocked} placeholder="Enter project name" className={`w-full p-2.5 border border-gray-300 rounded-md text-sm ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} />
+        </div>
+      </div>
+      <div className="overflow-x-auto">
       <table className="w-full table-fixed border-collapse">
         <thead>
           <tr className="bg-gray-100 border-b border-t border-gray-300 h-16">
@@ -340,7 +361,16 @@ function WeekView({ projects, grandTotal, weeklyDayTotals, handleEntryChange, se
             <td className="p-3 text-left sticky left-0 bg-gray-100"><EmpTypography.h4>Daily Totals:</EmpTypography.h4></td>
             {weeklyDayTotals.map((total, i) => (
               <td key={`total-${i}`} className="text-center font-extrabold p-1">
-                <EmpTypography.p>{(parseFloat(total) || 0).toFixed(2)}</EmpTypography.p>
+                <EmpTypography.input
+                  type="text"
+                  inputMode="decimal"
+                  value={dailyDrafts[i] ?? String(total)}
+                  onChange={event => changeDailyDraft(i, event.target.value)}
+                  onBlur={() => onQuickTotalSave(weekDays[i].dateKey, dailyDrafts[i] ?? String(total))}
+                  disabled={isLocked}
+                  aria-label={`${weekDays[i].day} daily total`}
+                  className={`w-16 h-8 text-sm font-semibold text-center ${isLocked ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}
+                />
               </td>
             ))}
             <td className="text-center font-extrabold bg-blue-200 sticky right-0">
@@ -349,6 +379,21 @@ function WeekView({ projects, grandTotal, weeklyDayTotals, handleEntryChange, se
           </tr>
         </tfoot>
       </table>
+      </div>
+      <div className="border border-gray-200 rounded-lg bg-white p-4">
+        <label htmlFor="weekly-status-report" className="block text-sm font-semibold text-gray-700 mb-2">Weekly Status Report <span className="text-red-600">*</span></label>
+        <textarea
+          id="weekly-status-report"
+          rows="4"
+          value={weeklyStatusReport}
+          onChange={event => onWeeklyStatusReportChange(event.target.value)}
+          onBlur={onWeeklyStatusReportSave}
+          disabled={isLocked}
+          placeholder="Summarize the work completed during this week."
+          className={`w-full p-2.5 border border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-200 focus:border-blue-200 ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+        />
+        {saveMessage && <EmpTypography.small className="block mt-2 text-gray-500">{saveMessage}</EmpTypography.small>}
+      </div>
     </div>
   );
 }
@@ -449,7 +494,7 @@ function AddTimeRowModel({ open, onClose, currentDate, onSaveEntry, entryToEdit,
         timeInput: '',
         timeHours: 0,
         type: ENTRY_TYPES[0],
-        project: MOCK_PROJECTS[0].name,
+        project: '',
         role: designationOptions?.[0]?.name || MOCK_Designations[0].name,
         notes: '',
         timeOffReason: '',
@@ -490,7 +535,7 @@ function AddTimeRowModel({ open, onClose, currentDate, onSaveEntry, entryToEdit,
       setEntryData(prev => ({
         ...prev,
         [name]: value,
-        project: MOCK_PROJECTS[0].name,
+        project: '',
         timeOffReason: '',
         customTimeOffReason: '',
       }));
@@ -585,12 +630,9 @@ function AddTimeRowModel({ open, onClose, currentDate, onSaveEntry, entryToEdit,
             {entryData.type !== 'Time Off' && (
               <>
                 <div>
-                  <label htmlFor="project" className="block text-sm font-medium text-gray-700">Project</label>
-                  <select id="project" name="project" value={entryData.project} onChange={handleChange}
-                    className="mt-1 w-full p-2.5 border border-gray-300 rounded-md shadow-sm focus:ring-blue-200 focus:border-blue-200 text-sm" required>
-                    <option value="" disabled>Select a project</option>
-                    {MOCK_PROJECTS.map(proj => <option key={proj.id} value={proj.name}>{proj.name}</option>)}
-                  </select>
+                  <label htmlFor="project" className="block text-sm font-medium text-gray-700">Project Name</label>
+                  <input id="project" name="project" value={entryData.project} onChange={handleChange}
+                    className="mt-1 w-full p-2.5 border border-gray-300 rounded-md shadow-sm focus:ring-blue-200 focus:border-blue-200 text-sm" placeholder="Enter project name" required />
                 </div>
                 <div>
                   <label htmlFor="role" className="block text-sm font-medium text-gray-700">Role</label>
@@ -603,7 +645,7 @@ function AddTimeRowModel({ open, onClose, currentDate, onSaveEntry, entryToEdit,
               </>
             )}
             <div>
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">Notes (Optional)</label>
+              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">Status (Optional)</label>
               <textarea id="notes" name="notes" rows="4" value={entryData.notes} onChange={handleChange}
                 className="mt-1 w-full p-2.5 border border-gray-300 rounded-md shadow-sm focus:ring-blue-200 focus:border-blue-200 text-sm"></textarea>
             </div>
@@ -631,6 +673,11 @@ export default function Timesheet() {
   const [allTimeEntries, setAllTimeEntries] = useState([]);
   const [currentWeekStart, setCurrentWeekStart] = useState(getTodayDate());
   const [activeTab, setActiveTab] = useState("WEEK");
+  const [weeklyStatusReport, setWeeklyStatusReport] = useState('');
+  const [clientContext, setClientContext] = useState({ state: 'loading', name: '' });
+  const [weeklyProjectName, setWeeklyProjectName] = useState('');
+  const [weeklySaveMessage, setWeeklySaveMessage] = useState('');
+  const [weeklyLoadVersion, setWeeklyLoadVersion] = useState(0);
   const [showAddTimeRow, setShowAddTimeRow] = useState(false);
   const [showMonthYearSelector, setShowMonthYearSelector] = useState(false);
   const [newEntryDate, setNewEntryDate] = useState(getTodayDate());
@@ -659,6 +706,7 @@ export default function Timesheet() {
           client: e.client || '',
           role: e.role || '',
           type: e.type || 'Project Time',
+          entrySource: e.entrySource || 'detailed',
           notes: e.notes || '',
           status: e.status,
           adminComment: e.adminComment || '',
@@ -719,6 +767,56 @@ export default function Timesheet() {
     return [];
   }, [activeTab, weekKeys, currentDayKey, currentWeekStart]);
 
+  const selectedWeekStart = weekKeys[0];
+  const toClientEntry = useCallback((entry) => ({
+    id: `db-${entry.id}`,
+    dbId: entry.id,
+    dateKey: entry.dateKey,
+    hours: Number(entry.hours || 0),
+    project: entry.project || '',
+    client: entry.client || '',
+    role: entry.role || '',
+    type: entry.type || 'Project Time',
+    entrySource: entry.entrySource || 'detailed',
+    notes: entry.notes || '',
+    status: entry.status,
+    adminComment: entry.adminComment || '',
+  }), []);
+
+  const mergePersistedWeek = useCallback((entries, dates = weekKeys) => {
+    const persistedEntries = entries.map(toClientEntry);
+    setAllTimeEntries(previous => {
+      // Keep unsaved detailed drawer rows. The new quick-entry rows themselves
+      // are persisted immediately and are replaced from the API response.
+      const localDrafts = previous.filter(entry => dates.includes(entry.dateKey) && !entry.dbId && entry.entrySource !== 'weekly_quick');
+      const outsideWeek = previous.filter(entry => !dates.includes(entry.dateKey));
+      return [...outsideWeek, ...localDrafts, ...persistedEntries];
+    });
+  }, [toClientEntry, weekKeys]);
+
+  const loadSelectedWeek = useCallback(async () => {
+    if (!selectedWeekStart) return;
+    const response = await getTimesheetWeek(selectedWeekStart);
+    mergePersistedWeek(response.data.entries || [], response.data.weekDates || weekKeys);
+    setWeeklyStatusReport(response.data.weeklySummary?.statusReport || '');
+    setWeeklyProjectName(response.data.weeklySummary?.projectName || '');
+    setWeeklyLoadVersion(version => version + 1);
+    return response.data;
+  }, [selectedWeekStart, mergePersistedWeek, weekKeys]);
+
+  useEffect(() => {
+    getTimesheetContext().then(response => setClientContext(response.data.client || { state: 'missing', name: '' })).catch(() => setClientContext({ state: 'missing', name: '' }));
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'WEEK') return undefined;
+    let cancelled = false;
+    loadSelectedWeek().catch(error => {
+      if (!cancelled) setWeeklySaveMessage(error?.response?.data?.error || 'Unable to load this week.');
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, selectedWeekStart, loadSelectedWeek]);
+
   const getStatusColors = useCallback((status) => {
     switch (status) {
       case APPROVAL_STATUSES.APPROVED:
@@ -735,7 +833,7 @@ export default function Timesheet() {
   }, []);
 
   const getDayStatus = useCallback((dateKey) => {
-    const entries = allTimeEntries.filter(e => e.dateKey === dateKey);
+    const entries = allTimeEntries.filter(e => e.dateKey === dateKey && !(e.entrySource === 'weekly_quick' && Number(e.hours) === 0));
     if (entries.length === 0) return APPROVAL_STATUSES.NONE;
     const hasRejected = entries.some(e => e.status === APPROVAL_STATUSES.REJECTED);
     const hasPending = entries.some(e => e.status === APPROVAL_STATUSES.PENDING);
@@ -785,7 +883,7 @@ export default function Timesheet() {
   }, []);
 
   const periodApprovalStatus = useMemo(() => {
-    const currentPeriodEntries = allTimeEntries.filter(entry => currentPeriodKeys.includes(entry.dateKey));
+    const currentPeriodEntries = allTimeEntries.filter(entry => currentPeriodKeys.includes(entry.dateKey) && !(entry.entrySource === 'weekly_quick' && Number(entry.hours) === 0));
     if (currentPeriodEntries.length === 0) return APPROVAL_STATUSES.NONE;
     const statuses = currentPeriodEntries.map(e => e.status);
     if (statuses.some(s => s === APPROVAL_STATUSES.REJECTED)) return APPROVAL_STATUSES.REJECTED;
@@ -795,6 +893,7 @@ export default function Timesheet() {
   }, [allTimeEntries, currentPeriodKeys]);
 
   const statusColors = getStatusColors(periodApprovalStatus);
+  const isWeekLocked = [APPROVAL_STATUSES.SUBMITTED, APPROVAL_STATUSES.APPROVED].includes(periodApprovalStatus);
 
   const periodAdminComments = useMemo(() => {
     return allTimeEntries
@@ -805,20 +904,37 @@ export default function Timesheet() {
   const pendingEntryCount = useMemo(() => {
     return allTimeEntries.filter(entry =>
       entry.status === APPROVAL_STATUSES.PENDING &&
-      currentPeriodKeys.includes(entry.dateKey)
+      currentPeriodKeys.includes(entry.dateKey) &&
+      Number(entry.hours) > 0
     ).length;
   }, [allTimeEntries, currentPeriodKeys]);
 
   const handleSubmitForApproval = useCallback(async () => {
+    if (activeTab === 'WEEK' && !weeklyProjectName.trim()) {
+      setWeeklySaveMessage('Project Name is required before submitting the weekly timesheet.');
+      return;
+    }
+    if (activeTab === 'WEEK' && !weeklyStatusReport.trim()) {
+      setWeeklySaveMessage('Weekly Status Report is required before submitting the timesheet for approval.');
+      return;
+    }
+    if (clientContext?.state !== 'assigned') {
+      setWeeklySaveMessage(clientContext?.state === 'multiple' ? 'Multiple active clients are assigned in Work Info. Please contact HR to set one active client.' : 'No client is currently assigned in Work Info. Please contact HR before submitting a timesheet.');
+      return;
+    }
     if (pendingEntryCount === 0) return;
     const submissionMessage = `Are you sure you want to submit ${pendingEntryCount} pending entries for approval in the current ${activeTab} view?`;
     if (!window.confirm(submissionMessage)) return;
 
     const entriesToSubmit = allTimeEntries.filter(entry =>
-      entry.status === APPROVAL_STATUSES.PENDING && currentPeriodKeys.includes(entry.dateKey)
+      entry.status === APPROVAL_STATUSES.PENDING && currentPeriodKeys.includes(entry.dateKey) && Number(entry.hours) > 0
     );
 
     try {
+      if (activeTab === 'WEEK') {
+        await saveTimesheetWeeklyDetails(selectedWeekStart, weeklyProjectName.trim());
+        await saveTimesheetWeeklyStatusReport(selectedWeekStart, weeklyStatusReport);
+      }
       const res = await submitTimesheetEntries(entriesToSubmit.map(e => ({
         dbId: e.dbId || null,
         dateKey: e.dateKey,
@@ -828,7 +944,8 @@ export default function Timesheet() {
         role: e.role,
         type: e.type,
         notes: e.notes,
-      })));
+        entrySource: e.entrySource,
+      })), activeTab === 'WEEK' ? { weekStart: selectedWeekStart } : {});
 
       const savedEntries = res.data.saved || [];
       // Build a map from dateKey+project+type -> new dbId for matching
@@ -849,9 +966,9 @@ export default function Timesheet() {
       }));
     } catch (err) {
       console.error('[handleSubmitForApproval]', err?.response?.data?.error || err.message);
-      alert('Failed to submit entries. Please try again.');
+      setWeeklySaveMessage(err?.response?.data?.error || 'Failed to submit entries. Please try again.');
     }
-  }, [pendingEntryCount, currentPeriodKeys, activeTab, allTimeEntries]);
+  }, [pendingEntryCount, currentPeriodKeys, activeTab, allTimeEntries, selectedWeekStart, weeklyProjectName, weeklyStatusReport, clientContext]);
 
   const handleModifyPeriod = useCallback(() => {
     const recallMessage = `Are you sure you want to recall the current period (${activeTab})? This will revert all entries in this period (Submitted, Approved, Rejected) to 'Pending' status and allow editing.`;
@@ -909,6 +1026,9 @@ export default function Timesheet() {
         grandTotal += entry.hours;
         weeklyDayTotals[dateIndexInWeek] += entry.hours;
         if (!isTimeOff) grandBillableTotal += entry.hours;
+        // Weekly quick-entry rows are represented by the editable Daily
+        // Totals footer, not as a duplicate-looking project row.
+        if (entry.entrySource === 'weekly_quick') return;
         const projectKey = `${entry.type}-${entry.project}`;
         if (!projectsMap.has(projectKey)) {
           projectsMap.set(projectKey, {
@@ -971,6 +1091,86 @@ export default function Timesheet() {
     const num = parseFloat(value);
     return isNaN(num) ? 0 : num;
   };
+
+  const handleQuickTotalChange = useCallback((dateKey, requestedTotal) => {
+    if (!Number.isFinite(requestedTotal) || requestedTotal < 0 || requestedTotal > 24) {
+      setWeeklySaveMessage('Hours must be a number between 0 and 24.');
+      return;
+    }
+    setWeeklySaveMessage('');
+    setAllTimeEntries(previous => {
+      const dayEntries = previous.filter(entry => entry.dateKey === dateKey);
+      const detailedHours = dayEntries
+        .filter(entry => entry.entrySource !== 'weekly_quick')
+        .reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
+      if (requestedTotal < detailedHours - 0.000001) {
+        setWeeklySaveMessage(`Daily Total cannot be lower than detailed entries (${detailedHours.toFixed(2)} hours).`);
+        return previous;
+      }
+      const quickHours = Number((requestedTotal - detailedHours).toFixed(2));
+      const existingQuick = dayEntries.find(entry => entry.entrySource === 'weekly_quick');
+      const withoutQuick = previous.filter(entry => !(entry.dateKey === dateKey && entry.entrySource === 'weekly_quick'));
+      if (existingQuick) {
+        return [...withoutQuick, { ...existingQuick, hours: quickHours, status: existingQuick.status === APPROVAL_STATUSES.REJECTED ? APPROVAL_STATUSES.PENDING : existingQuick.status }];
+      }
+      if (quickHours === 0) return withoutQuick;
+      return [...withoutQuick, {
+        id: `quick-${dateKey}`,
+        dateKey,
+        hours: quickHours,
+        project: '',
+        client: '',
+        role: '',
+        type: 'Project Time',
+        entrySource: 'weekly_quick',
+        notes: 'Weekly quick entry',
+        status: APPROVAL_STATUSES.PENDING,
+      }];
+    });
+  }, []);
+
+  const handleQuickTotalSave = useCallback(async (dateKey, rawTotal) => {
+    if (!weeklyProjectName.trim()) { setWeeklySaveMessage('Please enter a Project Name before saving weekly hours.'); return; }
+    if (clientContext?.state !== 'assigned') { setWeeklySaveMessage(clientContext?.state === 'multiple' ? 'Multiple active clients are assigned in Work Info. Please contact HR to set one active client.' : 'No client is currently assigned in Work Info. Please contact HR before saving timesheet hours.'); return; }
+    const totalHours = rawTotal === '' ? 0 : Number(rawTotal);
+    if (!Number.isFinite(totalHours)) return;
+    try {
+      const response = await saveTimesheetQuickEntry(selectedWeekStart, { dateKey, totalHours });
+      const saved = response.data.entry;
+      if (saved) {
+        const savedEntry = toClientEntry(saved);
+        setAllTimeEntries(previous => [
+          ...previous.filter(entry => !(entry.dateKey === dateKey && entry.entrySource === 'weekly_quick')),
+          savedEntry,
+        ]);
+      }
+      setWeeklySaveMessage('Weekly total saved.');
+    } catch (error) {
+      setWeeklySaveMessage(error?.response?.data?.error || 'Unable to save the Daily Total.');
+      loadSelectedWeek().catch(() => {});
+    }
+  }, [selectedWeekStart, toClientEntry, loadSelectedWeek, weeklyProjectName, clientContext]);
+
+  const handleWeeklyProjectNameSave = useCallback(async () => {
+    if (isWeekLocked || !weeklyProjectName.trim()) return;
+    try {
+      const response = await saveTimesheetWeeklyDetails(selectedWeekStart, weeklyProjectName.trim());
+      setWeeklyProjectName(response.data.weeklySummary?.projectName || weeklyProjectName.trim());
+      setWeeklySaveMessage('Project Name saved.');
+      await loadSelectedWeek();
+    } catch (error) { setWeeklySaveMessage(error?.response?.data?.error || 'Unable to save the Project Name.'); }
+  }, [isWeekLocked, selectedWeekStart, weeklyProjectName, loadSelectedWeek]);
+
+  const handleWeeklyStatusReportSave = useCallback(async () => {
+    if (isWeekLocked) return;
+    try {
+      await saveTimesheetWeeklyStatusReport(selectedWeekStart, weeklyStatusReport);
+      setWeeklySaveMessage('Weekly Status Report saved.');
+    } catch (error) {
+      setWeeklySaveMessage(error?.response?.data?.error || 'Unable to save the Weekly Status Report.');
+      loadSelectedWeek().catch(() => {});
+    }
+  }, [isWeekLocked, selectedWeekStart, weeklyStatusReport, loadSelectedWeek]);
 
   const handleEntryChange = useCallback((projectId, dayIndex, value) => {
     const numericValue = parseTimeInput(value);
@@ -1054,6 +1254,7 @@ export default function Timesheet() {
           dateKey: entryData.date,
           hours: entryData.hours,
           project: entryData.project,
+          client: entryData.type === 'Time Off' ? '' : (clientContext?.name || ''),
           type: entryData.type,
           notes: entryData.notes,
           status: APPROVAL_STATUSES.PENDING,
@@ -1065,6 +1266,7 @@ export default function Timesheet() {
           dateKey: entryData.date,
           hours: entryData.hours,
           project: entryData.project,
+          client: entryData.type === 'Time Off' ? '' : (clientContext?.name || ''),
           type: entryData.type,
           notes: entryData.notes,
           status: APPROVAL_STATUSES.PENDING,
@@ -1073,7 +1275,7 @@ export default function Timesheet() {
       }
     });
     closeEntryModal();
-  }, [closeEntryModal]);
+  }, [closeEntryModal, clientContext]);
 
   // --- Navigation Handlers (unchanged) ---
   const currentMonthName = currentWeekStart.toLocaleString('en-US', { month: 'long' });
@@ -1392,9 +1594,21 @@ export default function Timesheet() {
               projects={projects}
               grandTotal={grandTotal}
               weeklyDayTotals={weeklyDayTotals}
+              dailyTotalsLoadVersion={weeklyLoadVersion}
               handleEntryChange={handleEntryChange}
               setShowAddTimeRow={openModelForDate}
               currentWeekStart={currentWeekStart}
+              isLocked={isWeekLocked}
+              onQuickTotalChange={handleQuickTotalChange}
+              onQuickTotalSave={handleQuickTotalSave}
+              weeklyStatusReport={weeklyStatusReport}
+              onWeeklyStatusReportChange={setWeeklyStatusReport}
+              onWeeklyStatusReportSave={handleWeeklyStatusReportSave}
+              saveMessage={weeklySaveMessage}
+              clientContext={clientContext}
+              weeklyProjectName={weeklyProjectName}
+              onWeeklyProjectNameChange={setWeeklyProjectName}
+              onWeeklyProjectNameSave={handleWeeklyProjectNameSave}
             />
           )}
           {activeTab === "DAY" && (

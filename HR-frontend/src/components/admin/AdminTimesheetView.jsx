@@ -174,10 +174,12 @@ function MonthView({ currentWeekStart, monthlyEntries, handleDayClick }) {
 }
 
 // ── Reusable editable entry cell ─────────────────────────────────────────
-function EditableEntryCell({ entry, onAction }) {
+function EditableEntryCell({ entry, onAction, isWeeklyQuickEntry = false }) {
   const { isRootAdmin, can } = useAuth();
-  const canUpdate = isRootAdmin || can('timesheet:update');
-  const canApprove = isRootAdmin || can('timesheet:approve');
+  // Quick-entry approval is a single employee/week action. Prevent the
+  // detailed-entry controls below from approving only one quick-entry day.
+  const canUpdate = !isWeeklyQuickEntry && (isRootAdmin || can('timesheet:update'));
+  const canApprove = !isWeeklyQuickEntry && (isRootAdmin || can('timesheet:approve'));
   const [editing, setEditing] = useState(false);
   const [hours, setHours] = useState(entry.hours);
 
@@ -220,8 +222,15 @@ function WeekGrid({ weekDays, entries, onAction }) {
   const projectMap = useMemo(() => {
     const map = {};
     entries.forEach(e => {
-      const key = `${e.type||'Project Time'}-${e.project||'—'}`;
-      if (!map[key]) map[key] = { type: e.type||'Project Time', project: e.project||'—', days: {} };
+      const isWeeklyQuickEntry = e.entrySource === 'weekly_quick';
+      const key = isWeeklyQuickEntry ? 'weekly-quick-entry' : `${e.type||'Project Time'}-${e.project||'—'}`;
+      if (!map[key]) map[key] = {
+        type: isWeeklyQuickEntry ? 'Weekly submission' : e.type || 'Project Time',
+        project: e.project || '—',
+        client: e.client || '',
+        isWeeklyQuickEntry,
+        days: {},
+      };
       map[key].days[e.dateKey] = e;
     });
     return map;
@@ -252,12 +261,13 @@ function WeekGrid({ weekDays, entries, onAction }) {
                 <td className={`px-4 py-3 border-r ${BORDER_COLOR}`}>
                   <div className="text-xs text-gray-500">{proj.type}</div>
                   <div className="font-medium text-gray-900">{proj.project}</div>
+                  {proj.client && <div className="text-xs text-gray-500">{proj.client}</div>}
                 </td>
                 {weekDays.map(d => {
                   const entry = proj.days[d.dateKey];
                   return (
                     <td key={d.dateKey} className={`px-2 py-2 text-center border-r ${BORDER_COLOR}`}>
-                      {entry ? <EditableEntryCell entry={entry} onAction={onAction} /> : <span className="text-gray-300">—</span>}
+                      {entry ? <EditableEntryCell entry={entry} onAction={onAction} isWeeklyQuickEntry={entry.entrySource === 'weekly_quick'} /> : <span className="text-gray-300">—</span>}
                     </td>
                   );
                 })}
@@ -296,11 +306,11 @@ function DayEntryCard({ e, onAction }) {
       <div className="flex items-center justify-between">
         <div>
           <div className="font-semibold text-gray-800">{e.project || '—'}</div>
-          <div className="text-xs text-gray-500">{e.type}{e.client ? ` · ${e.client}` : ''}</div>
+          <div className="text-xs text-gray-500">{e.entrySource === 'weekly_quick' ? 'Weekly submission' : e.type}{e.client ? ` · ${e.client}` : ''}</div>
           {e.notes && <div className="text-xs text-gray-400 mt-1">{e.notes}</div>}
         </div>
         <div className="flex items-center gap-3">
-          <EditableEntryCell entry={e} onAction={onAction} />
+          <EditableEntryCell entry={e} onAction={onAction} isWeeklyQuickEntry={e.entrySource === 'weekly_quick'} />
         </div>
       </div>
       {canUpdate && (
@@ -341,21 +351,50 @@ function DayView({ dayKey, entries, onAction }) {
 // ── Main export ───────────────────────────────────────────────────────────
 const viewModes = ["MONTH","WEEK","DAY"];
 
-export default function AdminTimesheetView({ entries, onAction }) {
+export default function AdminTimesheetView({ entries, onAction, weeklySummaries = [], initialWeekStart = null, onWeeklyAction, onDownload }) {
+  const { isRootAdmin, can } = useAuth();
+  const canApprove = isRootAdmin || can('timesheet:approve');
   const [activeTab, setActiveTab] = useState('WEEK');
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
+    if (initialWeekStart) return getWeekDays(new Date(`${initialWeekStart}T12:00:00`))[0].fullDate;
     const latest = entries.reduce((max,e) => e.dateKey > max ? e.dateKey : max, '2000-01-01');
     return getWeekDays(latest ? new Date(latest) : new Date())[0].fullDate;
   });
   const [currentDayKey, setCurrentDayKey] = useState(() => {
+    if (initialWeekStart) return initialWeekStart;
     return entries.reduce((max,e) => e.dateKey > max ? e.dateKey : max, dateToKey(new Date()));
+  });
+  // A calendar month cannot be derived from its Monday week anchor: the
+  // selected month may begin in the preceding month. Keep it independently.
+  const [currentMonthDate, setCurrentMonthDate] = useState(() => {
+    if (initialWeekStart) return new Date(`${initialWeekStart}T12:00:00`);
+    const latest = entries.reduce((max, entry) => entry.dateKey > max ? entry.dateKey : max, '');
+    return latest ? new Date(`${latest}T12:00:00`) : new Date();
   });
   const [showMonthYearSelector, setShowMonthYearSelector] = useState(false);
 
   const weekDays = useMemo(() => getWeekDays(currentWeekStart), [currentWeekStart]);
   const weekRange = weekDays.length === 7 ? `${weekDays[0].date} - ${weekDays[6].date}` : '';
-  const currentMonthName = ["January","February","March","April","May","June","July","August","September","October","November","December"][currentWeekStart.getMonth()];
-  const currentYear = currentWeekStart.getFullYear();
+  const currentWeekStartKey = weekDays[0]?.dateKey;
+  const weeklySummary = useMemo(
+    () => weeklySummaries.find(summary => summary.weekStart === currentWeekStartKey),
+    [weeklySummaries, currentWeekStartKey],
+  );
+  const weeklyQuickEntries = useMemo(
+    () => entries.filter(entry => entry.entrySource === 'weekly_quick' && weekDays.some(day => day.dateKey === entry.dateKey)),
+    [entries, weekDays],
+  );
+  const weeklyQuickStatus = useMemo(() => {
+    const statuses = weeklyQuickEntries.map(entry => entry.status);
+    if (statuses.some(status => status === 'Rejected')) return 'Rejected';
+    if (statuses.some(status => status === 'Pending')) return 'Pending';
+    if (statuses.some(status => status === 'Submitted')) return 'Submitted';
+    if (statuses.length && statuses.every(status => status === 'Approved')) return 'Approved';
+    return null;
+  }, [weeklyQuickEntries]);
+  const currentMonthName = ["January","February","March","April","May","June","July","August","September","October","November","December"][currentMonthDate.getMonth()];
+  const currentYear = currentMonthDate.getFullYear();
+  const currentMonthKey = `${currentYear}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
   const monthlyTimeEntries = useMemo(() => {
     const map = {};
@@ -369,15 +408,28 @@ export default function AdminTimesheetView({ entries, onAction }) {
   const handleDayClick = (date) => {
     setCurrentDayKey(dateToKey(date));
     setCurrentWeekStart(getWeekDays(date)[0].fullDate);
+    setCurrentMonthDate(new Date(date.getFullYear(), date.getMonth(), 1));
     setActiveTab('DAY');
   };
 
   const handleShift = (dir) => {
+    if (activeTab === 'MONTH') {
+      setCurrentMonthDate(previous => new Date(previous.getFullYear(), previous.getMonth() + dir, 1));
+      return;
+    }
     const d = new Date(currentWeekStart);
-    if (activeTab === 'MONTH') d.setMonth(d.getMonth() + dir);
-    else d.setDate(d.getDate() + dir * 7);
+    d.setDate(d.getDate() + dir * 7);
     setCurrentWeekStart(d);
   };
+
+  useEffect(() => {
+    if (!initialWeekStart) return;
+    const initialDate = new Date(`${initialWeekStart}T12:00:00`);
+    setCurrentWeekStart(getWeekDays(initialDate)[0].fullDate);
+    setCurrentDayKey(initialWeekStart);
+    setCurrentMonthDate(new Date(initialDate.getFullYear(), initialDate.getMonth(), 1));
+    setActiveTab('WEEK');
+  }, [initialWeekStart]);
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-md">
@@ -385,7 +437,7 @@ export default function AdminTimesheetView({ entries, onAction }) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <div className="flex items-center gap-2 relative min-w-[250px]">
           <button onClick={() => handleShift(-1)} className="text-blue-300 hover:text-gray-700 transition text-lg px-1">‹</button>
-          <span className="font-semibold text-gray-700">{weekRange}</span>
+          <span className="font-semibold text-gray-700">{activeTab === 'MONTH' ? `${currentMonthName} ${currentYear}` : weekRange}</span>
           <button onClick={() => handleShift(1)} className="text-blue-300 hover:text-gray-700 transition text-lg px-1">›</button>
           <button className="px-2 py-1 text-blue-600 hover:bg-blue-100 rounded" onClick={() => setShowMonthYearSelector(v=>!v)}>
             <span role="img" aria-label="Calendar">📅</span>
@@ -395,7 +447,10 @@ export default function AdminTimesheetView({ entries, onAction }) {
             onClose={() => setShowMonthYearSelector(false)}
             currentMonth={currentMonthName}
             currentYear={currentYear}
-            onDateSelect={(date) => { setCurrentWeekStart(getWeekDays(date)[0].fullDate); }}
+            onDateSelect={(date) => {
+              setCurrentMonthDate(new Date(date.getFullYear(), date.getMonth(), 1));
+              setCurrentWeekStart(getWeekDays(date)[0].fullDate);
+            }}
           />
         </div>
 
@@ -408,7 +463,14 @@ export default function AdminTimesheetView({ entries, onAction }) {
           ))}
         </div>
 
-        <div className="min-w-[250px]" />
+        <div className="min-w-[250px] flex justify-end">
+          <button
+            onClick={() => onDownload?.(activeTab === 'MONTH'
+              ? { period: 'month', monthKey: currentMonthKey }
+              : { period: 'week', weekStart: currentWeekStartKey })}
+            className="rounded border border-blue-600 px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+          >Download Timesheet</button>
+        </div>
       </div>
 
       {/* Day selector */}
@@ -417,8 +479,32 @@ export default function AdminTimesheetView({ entries, onAction }) {
       )}
 
       {/* Views */}
-      {activeTab === 'MONTH' && <MonthView currentWeekStart={currentWeekStart} monthlyEntries={monthlyTimeEntries} handleDayClick={handleDayClick} />}
-      {activeTab === 'WEEK' && <WeekGrid weekDays={weekDays} entries={entries.filter(e=>weekDays.some(d=>d.dateKey===e.dateKey))} onAction={onAction} />}
+      {activeTab === 'MONTH' && <MonthView currentWeekStart={currentMonthDate} monthlyEntries={monthlyTimeEntries} handleDayClick={handleDayClick} />}
+      {activeTab === 'WEEK' && (
+        <div className="space-y-4">
+          <WeekGrid weekDays={weekDays} entries={entries.filter(e=>weekDays.some(d=>d.dateKey===e.dateKey))} onAction={onAction} />
+          <section className="mx-4 mb-4 border border-gray-200 rounded-lg bg-gray-50 p-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">Weekly Status Report</h3>
+            <p className="whitespace-pre-wrap text-sm text-gray-700">
+              {weeklySummary?.statusReport?.trim() || 'No weekly status provided.'}
+            </p>
+          </section>
+          {weeklyQuickStatus && (
+            <section className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-lg bg-white p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700">Weekly Quick Entry</h3>
+                <p className="text-sm text-gray-500">Status: <span className="font-semibold text-gray-700">{weeklyQuickStatus}</span></p>
+              </div>
+              {canApprove && weeklyQuickStatus === 'Submitted' && (
+                <div className="flex gap-2">
+                  <button onClick={() => onWeeklyAction(currentWeekStartKey, 'Rejected')} className="px-4 py-2 rounded bg-red-100 text-red-700 text-sm font-semibold hover:bg-red-200">Reject</button>
+                  <button onClick={() => onWeeklyAction(currentWeekStartKey, 'Approved')} className="px-4 py-2 rounded bg-green-100 text-green-700 text-sm font-semibold hover:bg-green-200">Approve</button>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+      )}
       {activeTab === 'DAY' && <DayView dayKey={currentDayKey} entries={entries} onAction={onAction} />}
     </div>
   );

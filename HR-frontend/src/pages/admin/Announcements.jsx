@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
+import { confirmOrRequestDelete, requestOrUseAdminAction } from '../../utils/adminDeleteRequest';
 
 const authHeaders = () => {
     const token = localStorage.getItem("token");
@@ -84,13 +85,16 @@ export default function AdminAnnouncements() {
     };
 
     const handleExpire = async (id) => {
+        const announcement = announcements.find(item => item.id === id);
+        if (!await requestOrUseAdminAction({ actionType: 'edit', resourceType: 'announcement', resourceId: id, resourceLabel: `announcement ${announcement?.title || id}` })) return;
         if (!window.confirm("Move this announcement to 'Earlier Announcements'?")) return;
         await fetch(`/api/admin/announcements/${id}/expire`, { method: "PATCH", headers: authHeaders() });
         fetchAnnouncements();
     };
 
     const handleDelete = async (id) => {
-        if (!window.confirm("Delete this announcement permanently?")) return;
+        const announcement = announcements.find(item => item.id === id);
+        if (!await confirmOrRequestDelete({ resourceType: 'announcement', resourceId: id, resourceLabel: `announcement ${announcement?.title || id}` })) return;
         await fetch(`/api/admin/announcements/${id}`, { method: "DELETE", headers: authHeaders() });
         fetchAnnouncements();
     };

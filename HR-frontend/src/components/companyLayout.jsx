@@ -4,6 +4,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import AdminSidebar from "./admin/Admin_sidebar";
 import EmpSidebar from "./emp/Emp_sidebar";
+import { ADMIN_FEATURE_VISIBILITY } from "../utils/adminFeatureVisibility";
 
 const getInitials = (name = "", email = "") => {
     const source = String(name || email || "User").trim();
@@ -40,9 +41,9 @@ export default function CompanyLayout({ children }) {
         { name: "Calendar", path: "/admin/calendar" },
         { name: "Announcements", path: "/admin/announcements" },
         { name: "Documents", path: "/admin/documents" },
-        { name: "Recruiting", path: "/admin/recruiting" },
+        { name: "Bench & Opportunities", path: "/admin/recruiting" },
         { name: "Department", path: "/admin/department" },
-        { name: "Support Tickets", path: "/admin/support-tickets" },
+        ...(ADMIN_FEATURE_VISIBILITY.supportTickets ? [{ name: "Support Tickets", path: "/admin/support-tickets" }] : []),
         { name: "Register", path: "/admin/register" },
         { name: "Company", path: "/company" },
     ];

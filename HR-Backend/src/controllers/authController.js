@@ -1,10 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const nodemailer = require('nodemailer');
 const userModel = require('../models/user');
 const Employee = require('../models/employee');
-const EditRequest = require('../models/editRequest');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
 
@@ -16,29 +13,10 @@ const presentUser = (user, extras = {}) => ({
   ...extras,
 });
 
-const getTransporter = () => nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
-const sendPasswordEmail = async ({ to, tempPassword }) => {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    throw new Error('Email not configured. Set EMAIL_USER and EMAIL_PASS in .env');
-  }
-  await getTransporter().sendMail({
-    from: `"HR Portal" <${process.env.EMAIL_USER}>`,
-    to,
-    subject: 'Temporary Password',
-    text: `Your temporary password is:\n\n${tempPassword}\n\nPlease sign in using this password. You will be required to change it immediately.`,
-  });
-};
 
 // Admin Login
 exports.login = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, role: requestedLoginType } = req.body;
   try {
     const user = await userModel.getUserByEmail(email);
     if (!user || user.isActive === false) return res.status(401).json({ error: 'Invalid credentials' });
@@ -51,6 +29,14 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: 'Temporary password has expired' });
     }
     const accountType = user.accountType || (String(user.role).toLowerCase() === 'admin' ? 'admin' : 'employee');
+    const selectedLoginType = String(requestedLoginType || '').trim().toLowerCase();
+    const normalizedAccountType = String(accountType).toLowerCase();
+    const actualLoginType = ['root_admin', 'admin'].includes(normalizedAccountType)
+      ? 'admin'
+      : normalizedAccountType === 'employee' ? 'employee' : null;
+    if (!['admin', 'employee'].includes(selectedLoginType) || selectedLoginType !== actualLoginType) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
     let name = null;
     let employeeId = null;
     try {
@@ -236,64 +222,3 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-exports.requestPasswordReset = async (req, res) => {
-  try {
-    const { email, reason } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
-    const user = await userModel.getUserByEmail(email);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    const employee = await Employee.findOne({ where: { email: user.email } });
-    if (!employee) return res.status(404).json({ error: 'Employee profile not found' });
-
-    const existingPending = await EditRequest.findOne({
-      where: {
-        employeeId: employee.employee_id,
-        requestType: 'PASSWORD_RESET_REQUEST',
-        status: 'pending',
-      },
-    });
-    if (existingPending) {
-      return res.status(200).json({ success: true, message: 'Password reset request has already been sent to your administrator.' });
-    }
-
-    const requestReason = reason || 'Employee requested a temporary password because they cannot remember their password.';
-    await EditRequest.create({
-      employeeId: employee.employee_id,
-      requesterId: user.id || 0,
-      sectionKey: 'password',
-      reason: requestReason,
-      status: 'pending',
-      requestType: 'PASSWORD_RESET_REQUEST',
-    });
-
-    res.status(201).json({ success: true, message: 'Password reset request has been sent to your administrator.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-exports.sendTempPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
-    const user = await userModel.getUserByEmail(email);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    const tempPassword = crypto.randomBytes(12).toString('hex');
-    const hash = await bcrypt.hash(tempPassword, 10);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    const { User } = userModel;
-    await User.update({
-      password: hash,
-      mustChangePassword: true,
-      temporaryPasswordExpiresAt: expiresAt,
-    }, { where: { id: user.id } });
-
-    await sendPasswordEmail({ to: email, tempPassword });
-    res.json({ success: true, message: 'Temporary password sent to your email.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};

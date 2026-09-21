@@ -26,6 +26,7 @@ const pages = [
     { name: "Payroll", path: "/employee/payroll" },
     { name: "Profile", path: "/employee/profile" },
     { name: "Timesheet", path: "/employee/timesheet" },
+    { name: "Performance Report", path: "/employee/performance-report" },
     { name: "Help", path: "/employee/help" },
     { name: "Settings", path: "/employee/settings" },
     { name: "My Details", path: "/employee/onboarding" },

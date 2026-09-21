@@ -1,0 +1,11 @@
+const express = require('express');
+const authenticateToken = require('../middleware/auth');
+const { requireAdmin, requireRootAdmin } = require('../middleware/authorization');
+const controller = require('../controllers/adminActionRequestController');
+const router = express.Router();
+router.use(authenticateToken, requireAdmin);
+router.post('/', controller.create);
+router.get('/mine', controller.mine);
+router.patch('/:id/approve', requireRootAdmin, controller.approve);
+router.patch('/:id/reject', requireRootAdmin, controller.reject);
+module.exports = router;

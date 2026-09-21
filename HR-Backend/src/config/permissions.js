@@ -1,5 +1,5 @@
 const ROLE_PRESETS = {
-  hr: ['dashboard:view', 'employee:read', 'employee:create', 'employee:update', 'employee:deactivate', 'employee_modification:approve', 'onboarding:manage', 'documents:manage', 'operations:manage', 'timesheet:view', 'payroll:view', 'payroll:create', 'payroll:update', 'payroll:upload', 'announcements:manage', 'support_tickets:view', 'calendar:view'],
+  hr: ['dashboard:view', 'employee:read', 'employee:create', 'employee:update', 'employee:deactivate', 'employee_modification:approve', 'onboarding:manage', 'documents:manage', 'operations:manage', 'timesheet:view', 'payroll:view', 'payroll:create', 'payroll:update', 'payroll:upload', 'announcements:manage', 'support_tickets:view', 'calendar:view', 'recruiting:view'],
   // Legacy name retained so existing Admin records continue to work. It has
   // the same effective access as the new Accounts role.
   payroll: ['dashboard:view', 'employee:read', 'employee:invoice:view', 'timesheet:view', 'timesheet:approve', 'timesheet:update', 'payroll:view', 'payroll:create', 'payroll:update', 'payroll:upload', 'payroll:delete', 'invoice:manage', 'documents:manage', 'operations:manage', 'announcements:manage', 'support_tickets:view', 'calendar:view'],
@@ -10,7 +10,7 @@ const ROLE_PRESETS = {
 };
 
 const ALL_PERMISSIONS = [...new Set(Object.values(ROLE_PRESETS).flat().concat([
-  'dashboard:view', 'employee:invoice:view', 'employee_modification:approve', 'timesheet:view', 'timesheet:approve', 'timesheet:update', 'payroll:view', 'payroll:create', 'payroll:update', 'payroll:upload', 'payroll:delete', 'announcements:manage', 'support_tickets:view', 'calendar:view', 'company:manage', 'admin:manage',
+  'dashboard:view', 'employee:invoice:view', 'employee_modification:approve', 'timesheet:view', 'timesheet:approve', 'timesheet:update', 'payroll:view', 'payroll:create', 'payroll:update', 'payroll:upload', 'payroll:delete', 'announcements:manage', 'support_tickets:view', 'calendar:view', 'company:manage', 'admin:manage', 'recruiting:view',
 ]))];
 
 function permissionsForRole(adminRole) {

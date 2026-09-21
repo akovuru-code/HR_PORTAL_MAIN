@@ -1,12 +1,13 @@
-import React, { useState } from "react";
-import { FaChartBar, FaUsers, FaClock, FaFileAlt, FaPlus, FaQuestionCircle, FaCog, FaCreditCard, FaFileInvoice, FaChevronDown, FaChevronUp } from "react-icons/fa";
+import React from "react";
+import { FaChartBar, FaChartLine, FaUsers, FaClock, FaFileAlt, FaPlus, FaQuestionCircle, FaCog, FaCreditCard, FaFileInvoice } from "react-icons/fa";
 import { useLocation, Link } from "react-router-dom";
 import { useAuth } from '../../hooks/useAuth';
 
 const menuItems = [
     { label: "Dashboard", icon: <FaChartBar />, href: "/admin/dashboard" },
     { label: "Employees", icon: <FaUsers />, href: "/admin/employees", permission: 'employee:read' },
-    { label: "Timesheet", icon: <FaClock />, href: "/admin/timesheet", permission: 'timesheet:view' },
+    { label: "Timesheet & Status Report", icon: <FaClock />, href: "/admin/timesheet", permission: 'timesheet:view' },
+    { label: "Employee Performance Review", icon: <FaChartLine />, href: "/admin/employee-performance-reports", rootOnly: true },
     /* Hidden for Admin: Currently supports only a single user's details. 
     Requires enhancement to support multiple users before it can be enabled in a future release. */
     // { label: "Onboarding", icon: <FaFileAlt />, href: "/admin/onboarding" },
@@ -23,7 +24,6 @@ export default function AdminSidebar() {
     const location = useLocation();
     const { isRootAdmin, permissions } = useAuth();
     const billingActive = location.pathname.startsWith('/admin/options/payments') || location.pathname.startsWith('/admin/invoice');
-    const [billingOpen, setBillingOpen] = useState(billingActive);
     const canBill = isRootAdmin || permissions.includes('invoice:manage');
     return (
         <aside
@@ -35,7 +35,7 @@ export default function AdminSidebar() {
                 Admin Panel
             </div>
             <nav className="flex-1" aria-label="Main menu">
-                {menuItems.filter(item => isRootAdmin || !item.permission || permissions.includes(item.permission)).map((item) => {
+                {menuItems.filter(item => (isRootAdmin || !item.rootOnly) && (isRootAdmin || !item.permission || permissions.includes(item.permission))).map((item) => {
                     const isActive = location.pathname.startsWith(item.href);
                     return (<React.Fragment key={item.label}>
                         <Link
@@ -45,7 +45,7 @@ export default function AdminSidebar() {
                         >
                             <span className="text-xl">{item.icon}</span> {item.label}
                         </Link>
-                        {item.label === 'Employees' && canBill && <div className="mb-1"><button type="button" onClick={() => setBillingOpen(value => !value)} className={`flex w-full items-center gap-3 px-3 py-2 rounded-lg text-base font-medium transition-colors ${billingActive ? "bg-slate-800 text-blue-400" : "hover:bg-slate-800 hover:text-blue-300"}`}><span className="text-xl"><FaCreditCard /></span> Billing <span className="ml-auto">{billingOpen || billingActive ? <FaChevronUp /> : <FaChevronDown />}</span></button>{(billingOpen || billingActive) && <div className="ml-7 mt-1 flex flex-col gap-1"><Link to="/admin/options/payments" className={`rounded px-3 py-1.5 text-sm ${location.pathname.startsWith('/admin/options/payments') ? 'bg-slate-800 text-blue-400' : 'hover:bg-slate-800 hover:text-blue-300'}`}><FaCreditCard className="mr-2 inline" />Payments</Link><Link to="/admin/invoice" className={`rounded px-3 py-1.5 text-sm ${location.pathname.startsWith('/admin/invoice') ? 'bg-slate-800 text-blue-400' : 'hover:bg-slate-800 hover:text-blue-300'}`}><FaFileInvoice className="mr-2 inline" />Invoice</Link></div>}</div>}
+                        {item.label === 'Employees' && canBill && <div className="mb-1"><div className={`flex w-full items-center gap-3 px-3 py-2 text-base font-medium ${billingActive ? "text-blue-400" : "text-white"}`}><span className="text-xl"><FaCreditCard /></span> Billing</div><div className="ml-7 mt-1 flex flex-col gap-1"><Link to="/admin/options/payments" className={`rounded px-3 py-1.5 text-sm ${location.pathname.startsWith('/admin/options/payments') ? 'bg-slate-800 text-blue-400' : 'hover:bg-slate-800 hover:text-blue-300'}`}><FaCreditCard className="mr-2 inline" />Payments</Link><Link to="/admin/invoice" className={`rounded px-3 py-1.5 text-sm ${location.pathname.startsWith('/admin/invoice') ? 'bg-slate-800 text-blue-400' : 'hover:bg-slate-800 hover:text-blue-300'}`}><FaFileInvoice className="mr-2 inline" />Invoices</Link></div></div>}
                     </React.Fragment>);
                 })}
             </nav>

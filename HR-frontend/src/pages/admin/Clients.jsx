@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import AdminTypography from '../../components/admin/AdminTypography';
+import { confirmOrRequestDelete } from '../../utils/adminDeleteRequest';
 
 const authHeaders = () => {
     const token = localStorage.getItem("token");
@@ -543,7 +544,7 @@ export default function AdminClients() {
             alert("This client comes from employee-submitted data and cannot be deleted here.");
             return;
         }
-        if (!window.confirm(`Warning: Deleting client details cannot be retrieved. Delete client ${client.name}?`)) return;
+        if (!await confirmOrRequestDelete({ resourceType: 'client', resourceId: client.id, resourceLabel: `client ${client.name}` })) return;
         try {
             const res = await fetch(`/api/admin/clients/${client.id}`, { method: "DELETE", headers: authHeaders() });
             if (res.ok) {

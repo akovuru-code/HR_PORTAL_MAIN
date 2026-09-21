@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
+import { confirmOrRequestDelete } from '../../utils/adminDeleteRequest';
 // --- Helpers ---
 const authHeaders = () => {
   const token = localStorage.getItem("token");
@@ -600,7 +601,7 @@ export default function AdminProjects() {
       alert("This project comes from active client data and cannot be deleted here. Manage it from the Clients page.");
       return;
     }
-    if (!window.confirm(`Warning: Deleting project "${project.name}" cannot be undone. Proceed?`)) return;
+    if (!await confirmOrRequestDelete({ resourceType: 'project', resourceId: project.id, resourceLabel: `project ${project.name}` })) return;
     try {
       const res = await fetch(`/api/admin/projects/${project.id}`, { method: "DELETE", headers: authHeaders() });
       if (res.ok) {

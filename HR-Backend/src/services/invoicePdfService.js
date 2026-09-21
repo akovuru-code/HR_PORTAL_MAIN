@@ -4,6 +4,7 @@ const { PDFDocument, rgb } = require('pdf-lib');
 const fontkit = require('@pdf-lib/fontkit');
 const { getInvoiceTemplate } = require('../config/invoiceTemplates');
 const { formatCurrency } = require('../config/currencies');
+const { previousMonthLabel } = require('../utils/invoicePeriod');
 
 const invoicesDirectory = path.join(__dirname, '..', '..', 'uploads', 'invoices');
 const templateDirectory = path.join(__dirname, '..', '..', 'assets', 'invoice-templates');
@@ -36,13 +37,9 @@ function safeEmployeeName(value) {
   return String(value || 'Employee').replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim() || 'Employee';
 }
 
-function downloadFilename(invoice) {
-  const billingPeriodDate = invoice.billingFromDate || invoice.invoiceDate || invoice.billingToDate || invoice.generatedDate;
-  const date = new Date(`${String(billingPeriodDate || '').slice(0, 10)}T00:00:00`);
+function downloadFilename(invoice, generatedAt = new Date()) {
   const employeeName = safeEmployeeName(invoice.employeeName);
-  if (Number.isNaN(date.getTime())) return `${employeeName} Invoice.pdf`;
-  const month = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(date);
-  return `${employeeName} ${month} ${date.getFullYear()} Invoice.pdf`;
+  return `${employeeName} ${previousMonthLabel(generatedAt)} Invoice.pdf`;
 }
 
 function fitText(text, font, size, width) {
@@ -83,45 +80,53 @@ function wrapText(text, font, size, width) {
 }
 
 function drawMetadata(page, invoice, layout, font) {
+  const fontSize = layout.typography?.metadata || 8;
   const terms = invoice.paymentTerms === 'Custom' ? `Net ${invoice.customPaymentDays || ''}` : invoice.paymentTerms;
   const values = { date: formatDate(invoice.invoiceDate), invoiceNumber: invoice.invoiceNumber, dueDate: formatDate(invoice.dueDate), paymentTerms: terms, poNumber: invoice.poNumber };
   Object.entries(layout.metadata).forEach(([field, cell]) => {
-    drawTopText(page, fitText(values[field], font, 8, cell.width), cell.x, cell.top, font, 8, { width: cell.width, height: cell.height, align: 'center' });
+    drawTopText(page, fitText(values[field], font, fontSize, cell.width), cell.x, cell.top, font, fontSize, { width: cell.width, height: cell.height, align: 'center' });
   });
 }
 
 function drawBillTo(page, invoice, layout, font) {
   const { x, top, width, headerHeight } = layout.billTo;
+  const fontSize = layout.typography?.billTo || 8.5;
+  const lineHeight = layout.typography?.billToLineHeight || 12;
   const lines = [invoice.billToCompany, invoice.billingContactName, invoice.billingEmail, invoice.billingAddress]
     .filter(Boolean)
     .flatMap(value => String(value).split(/\r?\n/));
-  lines.slice(0, 5).forEach((line, index) => drawTopText(page, line, x + 10, top + headerHeight + 10 + (index * 12), font, 8.5, { width: width - 20 }));
+  lines.slice(0, 5).forEach((line, index) => drawTopText(page, fitText(line, font, fontSize, width - 20), x + 10, top + headerHeight + 8 + (index * lineHeight), font, fontSize, { width: width - 20 }));
 }
 
 function drawItems(page, items, invoice, layout, font) {
   const { table } = layout;
+  const itemFontSize = layout.typography?.item || 7.5;
+  const descriptionFontSize = layout.typography?.description || itemFontSize;
+  const descriptionLineHeight = layout.typography?.descriptionLineHeight || 9;
   const [name, description, hours, rate, amount] = table.columns;
   items.slice(0, table.maxRows).forEach((item, index) => {
     const top = table.bodyTop + 8 + (index * table.rowHeight);
-    drawTopText(page, fitText(item.name, font, 7.5, name.width - 8), name.x + 4, top, font, 7.5, { width: name.width - 8 });
-    wrapText(item.description, font, 7.5, description.width - 8).slice(0, 2).forEach((line, lineIndex) => {
-      drawTopText(page, line, description.x + 4, top + (lineIndex * 9), font, 7.5, { width: description.width - 8 });
+    drawTopText(page, fitText(item.name, font, itemFontSize, name.width - 8), name.x + 4, top, font, itemFontSize, { width: name.width - 8 });
+    wrapText(item.description, font, descriptionFontSize, description.width - 8).slice(0, 2).forEach((line, lineIndex) => {
+      drawTopText(page, line, description.x + 4, top + (lineIndex * descriptionLineHeight), font, descriptionFontSize, { width: description.width - 8 });
     });
-    drawTopText(page, fitText(item.hours ?? 0, font, 7.5, hours.width - 6), hours.x + 3, top, font, 7.5, { width: hours.width - 6, align: 'right' });
-    drawTopText(page, fitText(money(item.rate, invoice.currency), font, 7.5, rate.width - 6), rate.x + 3, top, font, 7.5, { width: rate.width - 6, align: 'right' });
-    drawTopText(page, fitText(money(item.amount, invoice.currency), font, 7.5, amount.width - 6), amount.x + 3, top, font, 7.5, { width: amount.width - 6, align: 'right' });
+    drawTopText(page, fitText(item.hours ?? 0, font, itemFontSize, hours.width - 6), hours.x + 3, top, font, itemFontSize, { width: hours.width - 6, align: 'right' });
+    drawTopText(page, fitText(money(item.rate, invoice.currency), font, itemFontSize, rate.width - 6), rate.x + 3, top, font, itemFontSize, { width: rate.width - 6, align: 'right' });
+    drawTopText(page, fitText(money(item.amount, invoice.currency), font, itemFontSize, amount.width - 6), amount.x + 3, top, font, itemFontSize, { width: amount.width - 6, align: 'right' });
   });
 }
 
 function drawTotals(page, invoice, layout, font, boldFont) {
-  drawTopText(page, fitText(money(invoice.balanceDue, invoice.currency), font, 8.5, layout.balanceDue.width), layout.balanceDue.x, layout.balanceDue.top, font, 8.5, { width: layout.balanceDue.width, align: 'right' });
-  const totalFontSize = layout.total.fontSize || 8.5;
+  const balanceDueFontSize = layout.balanceDue.fontSize || layout.typography?.balanceDue || 8.5;
+  const balanceDueFont = layout.balanceDue.fontWeight === 'regular' ? font : boldFont;
+  drawTopText(page, fitText(money(invoice.balanceDue, invoice.currency), balanceDueFont, balanceDueFontSize, layout.balanceDue.width), layout.balanceDue.x, layout.balanceDue.top, balanceDueFont, balanceDueFontSize, { width: layout.balanceDue.width, height: layout.balanceDue.height, align: 'right' });
+  const totalFontSize = layout.total.fontSize || layout.typography?.total || 8.5;
   const totalValue = money(invoice.total, invoice.currency);
   const totalFont = layout.total.fontWeight === 'regular' ? font : boldFont;
   drawTopText(page, fitText(totalValue, totalFont, totalFontSize, layout.total.width), layout.total.x, layout.total.top, totalFont, totalFontSize, { width: layout.total.width, align: 'right' });
 }
 
-async function generateInvoicePdf({ invoice, items, company }) {
+async function generateInvoicePdf({ invoice, items, company, generatedAt = new Date() }) {
   await fs.promises.mkdir(invoicesDirectory, { recursive: true });
   const version = Number(invoice.pdfVersion || 0) + 1;
   const filename = `invoice_${invoice.id}_v${version}.pdf`;
@@ -153,7 +158,7 @@ async function generateInvoicePdf({ invoice, items, company }) {
   }
 
   await fs.promises.writeFile(outputPath, await document.save());
-  return { filename, outputPath, version, downloadName: downloadFilename(invoice), templateKey: template.key, templateName: template.label };
+  return { filename, outputPath, version, downloadName: downloadFilename(invoice, generatedAt), templateKey: template.key, templateName: template.label };
 }
 
 module.exports = { generateInvoicePdf, invoicesDirectory, downloadFilename, drawBillTo, money };

@@ -4,6 +4,7 @@ import {
     FaFileAlt,
     FaDollarSign,
     FaClock,
+    FaChartLine,
     FaQuestionCircle,
     FaCog,
 } from "react-icons/fa";
@@ -30,6 +31,11 @@ const menuItems = [
         label: "Timesheet",
         icon: <FaClock />,
         href: "/employee/timesheet",
+    },
+    {
+        label: "Performance Report",
+        icon: <FaChartLine />,
+        href: "/employee/performance-report",
     },
 ];
 

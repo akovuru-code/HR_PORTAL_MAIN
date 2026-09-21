@@ -63,7 +63,14 @@ export const getLatestEditRequest = (employeeId, sectionKey) =>
 export const getMyProfile = () => api.get('/auth/me');
 export const getPayrolls = () => api.get('/payroll');
 export const getTimesheetEntries = () => api.get('/timesheet/entries');
-export const submitTimesheetEntries = (entries) => api.post('/timesheet/entries/submit', { entries });
+export const submitTimesheetEntries = (entries, options = {}) => api.post('/timesheet/entries/submit', { entries, ...options });
+export const getTimesheetContext = () => api.get('/timesheet/context');
+export const getTimesheetWeek = (weekStart) => api.get(`/timesheet/weeks/${weekStart}`);
+export const getTimesheetProjects = () => api.get('/timesheet/projects');
+export const saveTimesheetWeeklyProject = (weekStart, projectId) => api.put(`/timesheet/weeks/${weekStart}/project`, { projectId });
+export const saveTimesheetWeeklyDetails = (weekStart, projectName) => api.put(`/timesheet/weeks/${weekStart}/details`, { projectName });
+export const saveTimesheetQuickEntry = (weekStart, payload) => api.put(`/timesheet/weeks/${weekStart}/quick-entry`, payload);
+export const saveTimesheetWeeklyStatusReport = (weekStart, statusReport) => api.put(`/timesheet/weeks/${weekStart}/status-report`, { statusReport });
 export const getDocuments = (employeeId = null) => (
     employeeId ? api.get(`/documents/employee/${employeeId}`) : api.get('/documents')
 );

@@ -4,6 +4,7 @@ import GraphPanel from "../../components/admin/GraphPanel";
 import AdminTypography from "../../components/admin/AdminTypography";
 import AnnouncementsPanel from "../../components/common/AnnouncementsPanel";
 import { useAuth } from "../../hooks/useAuth";
+import { ADMIN_FEATURE_VISIBILITY } from "../../utils/adminFeatureVisibility";
 
 // === API Configuration ===
 //const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY; // Skbabers@gmail.com
@@ -42,7 +43,7 @@ function GreetingHeader({ name }) {
 }
 
 // === AlertsPanel (inlined) ===
-function AlertsPanel({ alerts, onApprove, onReject }) {
+function AlertsPanel({ alerts, onApprove, onReject, onMarkRead, isRootAdmin }) {
   return (
     <div className="bg-white border rounded-xl p-4 shadow-sm min-h-[220px] max-h-80 overflow-y-auto">
       <div className="text-xl font-semibold mb-2">Alerts:</div>
@@ -50,28 +51,40 @@ function AlertsPanel({ alerts, onApprove, onReject }) {
         {alerts && alerts.length > 0 ? (
           alerts.map((alert, idx) => (
             <li key={idx} className="flex items-center justify-between gap-2">
-              <span>{typeof alert === 'string' ? alert : alert.message}</span>
-              {alert.canApprove && onApprove && (
+              <span>
+                {typeof alert === 'string' ? alert : alert.message}
+                {alert.actionType && <span className="block text-xs text-gray-500">{alert.actionType.toUpperCase()} · {alert.resourceType} #{alert.resourceId}</span>}
+                {alert.requesterRole && <span className="block text-xs text-gray-500">Requested by: {alert.requesterName} ({alert.requesterRole})</span>}
+                {alert.creatorRole && <span className="block text-xs text-gray-500">Added by: {alert.creatorName} ({alert.creatorRole}){alert.technology ? ` · ${alert.technology}` : ''}{alert.experience ? ` · ${alert.experience} yrs` : ''}</span>}
+                {alert.resetUserEmail && <span className="block text-xs text-gray-500">User: {alert.resetUserName} · {alert.resetUserEmail}</span>}
+                {alert.reason && <span className="block text-xs text-gray-500">Reason: {alert.reason}</span>}
+                {alert.requestKind === 'performance_report_replacement' && <span className="block text-xs text-gray-500">{alert.employeeName} · {alert.companyName} · {alert.reviewType} · {alert.reviewYear}</span>}
+                {alert.requestKind === 'performance_report_replacement' && alert.requestedAt && <span className="block text-xs text-gray-500">Requested: {new Date(alert.requestedAt).toLocaleString()}</span>}
+                {alert.requestKind === 'password_reset' && alert.requestedAt && <span className="block text-xs text-gray-500">Requested: {new Date(alert.requestedAt).toLocaleString()}</span>}
+                {alert.deliveryFailed && <span className="block text-xs text-red-600">Email delivery failed. Approve retries delivery with a new secure link.</span>}
+              </span>
+              {alert.canApprove && onApprove && (!alert.rootOnly || isRootAdmin) && (
                 <span className="flex gap-1 shrink-0">
                   <AdminTypography.button
                     variant="primary"
                     className="py-0.5"
                     style={{ minWidth: 60, fontSize: '0.72rem' }}
-                    onClick={() => onApprove(alert.id)}
+                    onClick={() => onApprove(alert)}
                   >
-                    Approve
+                    {alert.deliveryFailed ? 'Retry' : 'Approve'}
                   </AdminTypography.button>
                   {onReject && (
                     <AdminTypography.button
                       className="py-0.5 bg-red-100 text-red-700 hover:bg-red-200"
                       style={{ minWidth: 52, fontSize: '0.72rem' }}
-                      onClick={() => onReject(alert.id)}
+                      onClick={() => onReject(alert)}
                     >
                       Reject
                     </AdminTypography.button>
                   )}
                 </span>
               )}
+              {alert.notificationId && onMarkRead && <AdminTypography.button className="py-0.5 bg-gray-100 text-gray-700 hover:bg-gray-200" style={{ minWidth: 68, fontSize: '0.72rem' }} onClick={() => onMarkRead(alert)}>Mark read</AdminTypography.button>}
             </li>
           ))
         ) : (
@@ -304,10 +317,21 @@ export default function Dashboard() {
     }
   };
 
-  const approveEditRequest = async (id) => {
+  const approveEditRequest = async (alert) => {
     try {
+      const isActionRequest = alert?.requestKind === 'admin_action';
+      const isPasswordReset = alert?.requestKind === 'password_reset';
+      const isPerformanceReplacement = alert?.requestKind === 'performance_report_replacement';
+      const id = typeof alert === 'object' ? alert.id : alert;
       const token = localStorage.getItem("token");
-      const res = await fetch(`/api/admin/edit-requests/${id}/approve`, {
+      const endpoint = isPasswordReset
+        ? `/api/admin/password-reset-requests/${id}/approve`
+        : isPerformanceReplacement
+        ? `/api/performance-reports/admin/replacement-requests/${id}/approve`
+        : isActionRequest
+        ? `/api/admin-action-requests/${id}/approve`
+        : `/api/admin/edit-requests/${id}/approve`;
+      const res = await fetch(endpoint, {
         method: "PATCH",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -319,10 +343,21 @@ export default function Dashboard() {
     }
   };
 
-  const rejectEditRequest = async (id) => {
+  const rejectEditRequest = async (alert) => {
     try {
+      const isActionRequest = alert?.requestKind === 'admin_action';
+      const isPasswordReset = alert?.requestKind === 'password_reset';
+      const isPerformanceReplacement = alert?.requestKind === 'performance_report_replacement';
+      const id = typeof alert === 'object' ? alert.id : alert;
       const token = localStorage.getItem("token");
-      const res = await fetch(`/api/admin/edit-requests/${id}/reject`, {
+      const endpoint = isPasswordReset
+        ? `/api/admin/password-reset-requests/${id}/reject`
+        : isPerformanceReplacement
+        ? `/api/performance-reports/admin/replacement-requests/${id}/reject`
+        : isActionRequest
+        ? `/api/admin-action-requests/${id}/reject`
+        : `/api/admin/edit-requests/${id}/reject`;
+      const res = await fetch(endpoint, {
         method: "PATCH",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -331,6 +366,18 @@ export default function Dashboard() {
       }
     } catch {
       // silent fail
+    }
+  };
+
+  const markAlertRead = async (alert) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/alerts/${alert.notificationId}/read`, {
+        method: 'PATCH', headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (response.ok) setAlerts(current => current.filter(item => item.notificationId !== alert.notificationId));
+    } catch {
+      // Keep the alert visible so it can be retried.
     }
   };
 
@@ -436,11 +483,30 @@ export default function Dashboard() {
   useEffect(() => {
     fetchSession().then(setSession);
     fetchAlerts().then(setAlerts);
-    fetchStatus().then(setStatus);
-    fetchGrowth().then(setGrowth);
+    const refreshAlerts = () => fetchAlerts().then(setAlerts);
+    const intervalId = window.setInterval(refreshAlerts, 15000);
+    window.addEventListener('focus', refreshAlerts);
     fetchTodayNews();
     fetchGitaNote();
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshAlerts);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isRootAdmin) {
+      setStatus([]);
+      setGrowth({ growth: 0, percent: 0, data: { last7days: [], lastWeek: [] } });
+      return;
+    }
+    fetchStatus().then(setStatus);
+    if (ADMIN_FEATURE_VISIBILITY.employeeStatusReport) {
+      fetchGrowth().then(setGrowth);
+    } else {
+      setGrowth({ growth: 0, percent: 0, data: { last7days: [], lastWeek: [] } });
+    }
+  }, [isRootAdmin]);
 
   return (
     <>
@@ -543,50 +609,54 @@ export default function Dashboard() {
         <div className="w-96">
           <AlertsPanel
             alerts={alerts}
-            onApprove={canApproveEditRequests ? approveEditRequest : undefined}
-            onReject={canApproveEditRequests ? rejectEditRequest : undefined}
+            onApprove={isRootAdmin || canApproveEditRequests ? approveEditRequest : undefined}
+            onReject={isRootAdmin || canApproveEditRequests ? rejectEditRequest : undefined}
+            onMarkRead={markAlertRead}
+            isRootAdmin={isRootAdmin}
           />
           <ToDoStickyNotes />
         </div>
 
       </div>
 
-      {/* Status Cards + Graph */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 flex flex-col gap-8">
-          <div className="flex flex-wrap gap-8 items-end"></div>
-          <div className="flex flex-col gap-2">
-            <AdminTypography.label className="mb-1">Status</AdminTypography.label>
-            <div className="flex gap-4">
-              {status.map((s, i) => (
-                <StatusCard key={i} {...s} />
-              ))}
-            </div>
+      {isRootAdmin && (
+        <div className="mb-6 flex flex-col gap-2">
+          <AdminTypography.label className="mb-1">Status</AdminTypography.label>
+          <div className="flex gap-4">
+            {status.map((s, i) => (
+              <StatusCard key={i} {...s} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isRootAdmin && ADMIN_FEATURE_VISIBILITY.employeeStatusReport && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 flex flex-col gap-2">
             <AdminTypography.label className="mt-2">
               Complete Report about the Employees Status
             </AdminTypography.label>
-          </div>
-
-          <div className="flex-1">
-            <GraphPanel
-              growth={growth.growth}
-              percent={growth.percent}
-              data={growth.data}
-              labels={growth.labels}
-              onReloadReport={async () => {
-                try {
-                  setReloading(true);
-                  const updatedGrowth = await fetchGrowth();
-                  setGrowth(updatedGrowth);
-                } finally {
-                  setReloading(false);
-                }
-              }}
-              reloading={reloading}
-            />
+            <div className="flex-1">
+              <GraphPanel
+                growth={growth.growth}
+                percent={growth.percent}
+                data={growth.data}
+                labels={growth.labels}
+                onReloadReport={async () => {
+                  try {
+                    setReloading(true);
+                    const updatedGrowth = await fetchGrowth();
+                    setGrowth(updatedGrowth);
+                  } finally {
+                    setReloading(false);
+                  }
+                }}
+                reloading={reloading}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

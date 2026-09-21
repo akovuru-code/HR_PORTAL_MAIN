@@ -155,7 +155,7 @@ const authHeaders = () => {
 
 export default function AdminTimesheet() {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState({ month: "", project: "", client: "", vendor: "" });
+  const [filter, setFilter] = useState({ month: "", client: "", vendor: "" });
   const [selectedEmp, setSelectedEmp] = useState(null);
   const [modalTab, setModalTab] = useState("month");
   const [employeesData, setEmployeesData] = useState([]);
@@ -164,6 +164,9 @@ export default function AdminTimesheet() {
   const [commentText, setCommentText] = useState("");
   const [editHours, setEditHours] = useState("");
   const [empEntries, setEmpEntries] = useState([]);
+  const [empWeeklySummaries, setEmpWeeklySummaries] = useState([]);
+  const [initialWeekStart, setInitialWeekStart] = useState(null);
+  const [viewError, setViewError] = useState("");
   const isAdmin = useLocation().pathname.startsWith('/admin');
   const Typography = isAdmin ? AdminTypography : EmpTypography;
 
@@ -202,11 +205,79 @@ export default function AdminTimesheet() {
   const openEmployee = async (emp) => {
     setSelectedEmp(emp);
     setModalTab("day");
+    setViewError("");
+    setInitialWeekStart(emp.submissionType === 'weekly_quick' ? emp.weekStart : null);
+    setEmpEntries([]);
+    setEmpWeeklySummaries([]);
     try {
-      const res = await fetch(`/api/admin/timesheets/${emp.id}/entries`, { headers: authHeaders() });
-      const data = await res.json();
+      const employeeId = emp.employeeId ?? emp.id;
+      // The established Admin viewer is employee-scoped. It needs the complete
+      // entry history to support Month, Week, and Day navigation; the selected
+      // quick-entry week above only establishes the initial Week context.
+      const res = await fetch(`/api/admin/timesheets/${employeeId}/entries`, { headers: authHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Unable to load this timesheet submission.');
+
       setEmpEntries(data.entries || []);
-    } catch { setEmpEntries([]); }
+      setEmpWeeklySummaries(data.weeklySummaries || []);
+    } catch (error) {
+      setViewError(error.message || 'Unable to load this timesheet submission.');
+      setEmpEntries([]);
+      setEmpWeeklySummaries([]);
+      setInitialWeekStart(null);
+    }
+  };
+
+  const handleWeeklySubmissionAction = async (weekStart, status) => {
+    if (!selectedEmp) return;
+    setViewError("");
+    try {
+      const action = status === 'Approved' ? 'approve' : 'reject';
+      const employeeId = selectedEmp.employeeId ?? selectedEmp.id;
+      const res = await fetch(
+        `/api/admin/timesheets/${employeeId}/weeks/${weekStart}/${action}`,
+        { method: 'POST', headers: authHeaders() },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Unable to ${action} this weekly submission.`);
+
+      const refreshed = await fetch(`/api/admin/timesheets/${employeeId}/entries`, { headers: authHeaders() });
+      const refreshedData = await refreshed.json().catch(() => ({}));
+      if (!refreshed.ok) throw new Error(refreshedData.error || 'Unable to refresh timesheet entries.');
+      setEmpEntries(refreshedData.entries || []);
+      setEmpWeeklySummaries(refreshedData.weeklySummaries || []);
+      setSelectedEmp(previous => previous ? { ...previous, status } : null);
+      fetchTimesheetData();
+    } catch (error) {
+      setViewError(error.message || 'Unable to update this weekly submission.');
+    }
+  };
+
+  const downloadTimesheet = async ({ period, weekStart, monthKey }) => {
+    if (!selectedEmp || (period === 'month' ? !monthKey : !weekStart)) return;
+    setViewError("");
+    try {
+      const employeeId = selectedEmp.employeeId ?? selectedEmp.id;
+      const path = period === 'month'
+        ? `/api/admin/timesheets/${employeeId}/months/${monthKey}/download`
+        : `/api/admin/timesheets/${employeeId}/weeks/${weekStart}/download`;
+      const res = await fetch(path, { headers: authHeaders() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Unable to download this timesheet.');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const filenameMatch = res.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/i);
+      link.href = url;
+      link.download = filenameMatch?.[1]
+        || `${selectedEmp.name || 'Employee'} ${period === 'month' ? `Monthly Timesheet ${monthKey}` : `Weekly Timesheet ${weekStart}`}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) { setViewError(error.message || 'Unable to download this timesheet.'); }
   };
 
   const handleCommentSave = async () => {
@@ -231,8 +302,7 @@ export default function AdminTimesheet() {
 
   // Filtered employees
   const filtered = employeesData.filter(e =>
-    (!search || e.name.toLowerCase().includes(search.toLowerCase()) || e.project.toLowerCase().includes(search.toLowerCase()) || e.client.toLowerCase().includes(search.toLowerCase()) || e.vendor.toLowerCase().includes(search.toLowerCase())) &&
-    (!filter.project || e.project === filter.project) &&
+    (!search || e.name.toLowerCase().includes(search.toLowerCase()) || e.client.toLowerCase().includes(search.toLowerCase()) || e.vendor.toLowerCase().includes(search.toLowerCase())) &&
     (!filter.client || e.client === filter.client) &&
     (!filter.vendor || e.vendor === filter.vendor)
   );
@@ -247,15 +317,11 @@ export default function AdminTimesheet() {
       <div className="flex flex-wrap gap-4 items-center my-4">
         <input
           type="text"
-          placeholder="Search by employee, project, client, vendor..."
+          placeholder="Search by employee, client, vendor..."
           className="px-4 py-2 border border-gray-300 rounded-full min-w-[260px] bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <select className="border border-gray-300 rounded px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" value={filter.project} onChange={e => setFilter(f => ({ ...f, project: e.target.value }))}>
-          <option value="">All Projects</option>
-          {[...new Set(employeesData.map(e => e.project))].map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
         <select className="border border-gray-300 rounded px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" value={filter.client} onChange={e => setFilter(f => ({ ...f, client: e.target.value }))}>
           <option value="">All Clients</option>
           {[...new Set(employeesData.map(e => e.client))].map(c => <option key={c} value={c}>{c}</option>)}
@@ -305,7 +371,9 @@ export default function AdminTimesheet() {
             <p className="text-sm text-gray-500 mb-4">Review and action individual entries below.</p>
 
             {/* Calendar view — same layout as employee side */}
-            {empEntries.length === 0 ? (
+            {viewError ? (
+              <p className="text-red-600 text-sm py-6 text-center">{viewError}</p>
+            ) : empEntries.length === 0 ? (
               <p className="text-gray-400 text-sm py-6 text-center">No timesheet entries found.</p>
             ) : (
               <div className="mb-6">
@@ -320,11 +388,18 @@ export default function AdminTimesheet() {
                       method: "PATCH", headers: authHeaders(),
                       body: JSON.stringify(body),
                     });
-                    const res = await fetch(`/api/admin/timesheets/${selectedEmp.id}/entries`, { headers: authHeaders() });
-                    const data = await res.json();
+                    const employeeId = selectedEmp.employeeId ?? selectedEmp.id;
+                    const res = await fetch(`/api/admin/timesheets/${employeeId}/entries`, { headers: authHeaders() });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || 'Unable to refresh timesheet entries.');
                     setEmpEntries(data.entries || []);
+                    setEmpWeeklySummaries(data.weeklySummaries || []);
                     fetchTimesheetData();
                   }}
+                  weeklySummaries={empWeeklySummaries}
+                  initialWeekStart={initialWeekStart}
+                  onWeeklyAction={handleWeeklySubmissionAction}
+                  onDownload={downloadTimesheet}
                 />
               </div>
             )}

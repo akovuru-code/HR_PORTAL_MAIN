@@ -5,6 +5,7 @@ const TimesheetEntry = require('../models/timesheetEntry');
 const Payroll = require('../models/payroll');
 const Certification = require('../models/certification');
 const Education = require('../models/education');
+const PerformanceReportReplacementRequest = require('../models/performanceReportReplacementRequest');
 
 async function resolveEmployee(userId) {
   const userModel = require('../models/user');
@@ -85,6 +86,36 @@ exports.getDashboard = async (req, res) => {
         actionItems.push({ id: 'timesheet-rejected', type: 'rejection', message: `Timesheet entries (${dates}) were rejected by Admin` });
       }
     } catch (e) { console.error('[dashboard] timesheets error:', e.message); }
+
+    // Performance Report replacement decisions. Pending requests remain visible
+    // on the Performance Report page; this dashboard only shows final outcomes.
+    try {
+      const replacementRequests = await PerformanceReportReplacementRequest.findAll({
+        where: {
+          employeeId,
+          status: { [Op.in]: ['approved', 'rejected', 'consumed'] },
+        },
+        order: [['created_at', 'DESC']],
+      });
+
+      for (const request of replacementRequests) {
+        const reviewLabel = request.reviewType === 'MID_YEAR'
+          ? 'Mid-Year'
+          : request.reviewType === 'YEAR_END'
+            ? 'Year-End'
+            : 'Performance';
+        // A consumed request was previously approved and must retain that
+        // historical decision after the employee uploads its replacement.
+        const isApproved = request.status === 'approved' || request.status === 'consumed';
+        const decision = isApproved ? 'approved' : 'rejected';
+
+        actionItems.push({
+          id: `performance-replacement-${decision}-${request.id}`,
+          type: isApproved ? 'approval' : 'rejection',
+          message: `${reviewLabel} ${request.reviewYear} Performance Report replacement request was ${decision}.`,
+        });
+      }
+    } catch (e) { console.error('[dashboard] performance replacement requests error:', e.message); }
 
     // New payroll available (within last 2 days)
     try {

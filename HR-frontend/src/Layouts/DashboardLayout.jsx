@@ -5,6 +5,7 @@ import AdminSidebar from "../components/admin/Admin_sidebar";
 import Sidebar from "../components/common/Sidebar";
 import { FaUser, FaHome, FaCog, FaBuilding, FaSignOutAlt } from "react-icons/fa";
 import { useAuth } from "../hooks/useAuth";
+import { ADMIN_FEATURE_VISIBILITY } from "../utils/adminFeatureVisibility";
 
 // Helper to get initials from name
 // Helper to get initials from name
@@ -39,9 +40,9 @@ const pages = [
   { name: "Company", path: "/admin/company-info" },
   { name: "Announcements", path: "/admin/announcements" },
   { name: "Documents", path: "/admin/documents" },
-  { name: "Recruiting", path: "/admin/recruiting" },
+  { name: "Bench & Opportunities", path: "/admin/recruiting" },
   { name: "Department", path: "/admin/department" },
-  { name: "Support Tickets", path: "/admin/support-tickets" },
+  ...(ADMIN_FEATURE_VISIBILITY.supportTickets ? [{ name: "Support Tickets", path: "/admin/support-tickets" }] : []),
   { name: "Register", path: "/admin/register" },
   { name: "Company", path: "/company" }
 ];

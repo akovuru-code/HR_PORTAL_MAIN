@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
+import { confirmOrRequestDelete } from '../../utils/adminDeleteRequest';
 
 // Get logged-in user from localStorage
 const getLoggedInUser = () => {
@@ -537,7 +538,7 @@ export default function AdminPrimeVendors() {
             alert("This prime vendor comes from employee-submitted data and cannot be deleted here.");
             return;
         }
-        if (!window.confirm(`Warning: Deleting prime vendor details cannot be retrieved. Delete prime vendor ${primeVendor.name}?`)) return;
+        if (!await confirmOrRequestDelete({ resourceType: 'prime_vendor', resourceId: primeVendor.id, resourceLabel: `prime vendor ${primeVendor.name}` })) return;
         try {
             const res = await fetch(`/api/admin/prime-vendors/${primeVendor.id}`, { method: "DELETE", headers: authHeaders() });
             if (res.ok) {

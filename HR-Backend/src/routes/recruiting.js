@@ -3,6 +3,7 @@ const router = express.Router();
 
 const authenticateToken = require('../middleware/auth');
 const { requirePermission } = require('../middleware/authorization');
+const { requireApprovedDelete, requireApprovedEdit, consumeDeleteApproval, consumeEditApproval } = require('../services/deleteAuthorizationService');
 const Recruiting = require('../models/recruiting');
 
 
@@ -49,7 +50,7 @@ router.post('/', authenticateToken, requirePermission('recruiting:manage'), asyn
 
 
 // UPDATE candidate
-router.patch('/:id', authenticateToken, requirePermission('recruiting:manage'), async (req, res) => {
+router.patch('/:id', authenticateToken, requirePermission('recruiting:manage'), requireApprovedEdit('recruiting'), async (req, res) => {
     try {
 
         const candidate = await Recruiting.findByPk(req.params.id);
@@ -65,6 +66,7 @@ router.patch('/:id', authenticateToken, requirePermission('recruiting:manage'), 
             ...req.body,
             updatedBy: req.user.email
         });
+        await consumeEditApproval(req, 'recruiting', req.params.id);
 
 
         res.json({
@@ -81,7 +83,7 @@ router.patch('/:id', authenticateToken, requirePermission('recruiting:manage'), 
 
 
 // DELETE candidate
-router.delete('/:id', authenticateToken, requirePermission('recruiting:manage'), async (req, res) => {
+router.delete('/:id', authenticateToken, requirePermission('recruiting:manage'), requireApprovedDelete('recruiting'), async (req, res) => {
     try {
 
         const candidate = await Recruiting.findByPk(req.params.id);
@@ -93,6 +95,7 @@ router.delete('/:id', authenticateToken, requirePermission('recruiting:manage'),
         }
 
         await candidate.destroy();
+        await consumeDeleteApproval(req, 'recruiting', req.params.id);
 
         res.json({
             success: true

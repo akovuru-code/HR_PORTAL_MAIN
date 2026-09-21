@@ -17,6 +17,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 
 
 import Login from "./pages/Login";
+import ResetPassword from "./pages/ResetPassword";
 import Register from "./pages/Register";
 import Layout from "./components/Layout";
 import NotFound from "./pages/NotFound";
@@ -40,6 +41,7 @@ function App() {
         {/* Public Routes */}
         <Route path="/" element={<Navigate to="/login" />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/register" element={<Register />} />
         <Route path="/company" element={<CompanyLayout><Company /></CompanyLayout>} />
 

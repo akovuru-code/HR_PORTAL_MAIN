@@ -13,6 +13,7 @@ const getConfig = (method = "GET", body = null) => {
   };
 };
 
+// `role` is the user-selected login context, not an authoritative account role.
 export const login = async (email, password, role) => {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",

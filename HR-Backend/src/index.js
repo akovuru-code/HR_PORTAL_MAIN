@@ -14,6 +14,7 @@ require('./models/address');
 require('./models/document');
 require('./models/payroll');
 require('./models/timesheetEntry');
+require('./models/timesheetWeeklySummary');
 require('./models/timesheet');
 require('./models/education');
 require('./models/certification');
@@ -45,6 +46,14 @@ require('./models/recruiting');
 require('./models/company');
 require('./models/companySettings');
 require('./models/companyJob');
+require('./models/benchCandidate');
+require('./models/adminActionRequest');
+require('./models/adminNotification');
+require('./models/passwordResetRequest');
+require('./models/performanceReviewTemplate');
+require('./models/employeePerformanceReport');
+require('./models/performanceReportVersion');
+require('./models/performanceReportReplacementRequest');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -65,6 +74,8 @@ const recruitingRoutes = require('./routes/recruiting');
 const invoiceRoutes = require('./routes/invoice');
 const paymentRoutes = require('./routes/payments');
 const companyRoutes = require('./routes/company');
+const adminActionRequestRoutes = require('./routes/adminActionRequests');
+const performanceReportRoutes = require('./routes/performanceReports');
 
 const app = express();
 
@@ -135,6 +146,8 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/recruiting', recruitingRoutes);
 app.use('/api/company', companyRoutes);
+app.use('/api/admin-action-requests', adminActionRequestRoutes);
+app.use('/api/performance-reports', performanceReportRoutes);
 
 // Swagger docs
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));

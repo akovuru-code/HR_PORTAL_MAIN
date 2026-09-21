@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
 import { useAuth } from "../../hooks/useAuth";
 import { MdDelete } from "react-icons/md";
+import { confirmOrRequestDelete, requestOrUseAdminAction } from '../../utils/adminDeleteRequest';
 
 // Get logged-in user from localStorage
 const getLoggedInUser = () => {
@@ -438,7 +439,8 @@ export default function AdminPayroll() {
     setModalOpen(true);
   }
 
-  function handleEdit(payroll) {
+  async function handleEdit(payroll) {
+    if (!await requestOrUseAdminAction({ actionType: 'edit', resourceType: 'payroll', resourceId: payroll.id, resourceLabel: `payroll for ${payroll.employeeName || payroll.id}`, isRootAdmin })) return;
     if (window.confirm("Warning: Changing the payroll entry information will overwrite historical settings. Continue editing?")) {
       setEditPayroll(payroll);
       setModalOpen(true);
@@ -446,7 +448,8 @@ export default function AdminPayroll() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm("Are you sure you want to delete this payroll entry?")) return;
+    const payroll = payrolls.find(item => item.id === id);
+    if (!await confirmOrRequestDelete({ isRootAdmin, resourceType: 'payroll', resourceId: id, resourceLabel: `payroll for ${payroll?.employeeName || id}` })) return;
 
     try {
       const res = await fetch(`/api/payroll/${id}`, {

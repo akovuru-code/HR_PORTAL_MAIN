@@ -27,6 +27,8 @@ import AdminRegister from "./Register";
 import AdminManagement from "./AdminManagement";
 import ProtectedRoute from "../../components/ProtectedRoute";
 import AdminPayments from "./Payments";
+import EmployeePerformanceReports from "./EmployeePerformanceReports";
+import EmployeeAssociations from "./EmployeeAssociations";
 
 
 
@@ -41,6 +43,7 @@ export default (
     <Route path="onboarding" element={<EmpOnboard />} />
     <Route path="payroll" element={<ProtectedRoute permission="payroll:view"><AdminPayroll /></ProtectedRoute>} />
     <Route path="options" element={<AdminOptions />} />
+    <Route path="employee-associations" element={<ProtectedRoute allowedAdminRoles={['hr', 'accounts', 'payroll']}><EmployeeAssociations /></ProtectedRoute>} />
     <Route path="invoice" element={<ProtectedRoute permission="invoice:manage"><AdminInvoice /></ProtectedRoute>} />
     <Route path="projects" element={<ProtectedRoute permission="operations:manage"><AdminProjects /></ProtectedRoute>} />
     <Route path="options/payments" element={<ProtectedRoute permission="invoice:manage"><AdminPayments /></ProtectedRoute>} />
@@ -53,11 +56,12 @@ export default (
     <Route path="company-info" element={<Company />} />
     <Route path="announcements" element={<ProtectedRoute permission="announcements:manage"><AdminAnnouncements /></ProtectedRoute>} />
     <Route path="documents" element={<ProtectedRoute permission="documents:manage"><AdminDocuments /></ProtectedRoute>} />
-    <Route path="recruiting" element={<ProtectedRoute permission="recruiting:manage"><AdminRecruiting /></ProtectedRoute>} />
+    <Route path="recruiting" element={<ProtectedRoute anyPermissions={['recruiting:manage', 'recruiting:view']}><AdminRecruiting /></ProtectedRoute>} />
     <Route path="department" element={<AdminDepartment />} />
     <Route path="support-tickets" element={<ProtectedRoute permission="support_tickets:view"><AdminSupportTickets /></ProtectedRoute>} />
     <Route path="register" element={<ProtectedRoute permission="employee:create"><AdminRegister /></ProtectedRoute>} />
     <Route path="admin-management" element={<ProtectedRoute allowedAccountTypes={["root_admin"]}><AdminManagement /></ProtectedRoute>} />
+    <Route path="employee-performance-reports" element={<ProtectedRoute allowedAccountTypes={["root_admin"]}><EmployeePerformanceReports /></ProtectedRoute>} />
 
 
 

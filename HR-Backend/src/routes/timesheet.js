@@ -27,6 +27,13 @@ router.post('/upload', upload.single('timesheet'), (req, res, next) => {
 }, authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetController.uploadTimesheet);
 
 router.get('/entries', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.getEntries);
+router.get('/context', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.getContext);
+router.get('/projects', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.getProjects);
+router.get('/weeks/:weekStart', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.getWeek);
+router.put('/weeks/:weekStart/project', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.saveWeeklyProject);
+router.put('/weeks/:weekStart/details', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.saveWeeklyDetails);
+router.put('/weeks/:weekStart/quick-entry', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.saveQuickEntry);
+router.put('/weeks/:weekStart/status-report', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.saveWeeklyStatusReport);
 router.post('/entries/submit', authenticateToken, requireEmployeeOrPermission('timesheet:view'), timesheetEntryController.submitEntries);
 
 module.exports = router;

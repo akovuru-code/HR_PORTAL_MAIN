@@ -13,6 +13,16 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function requireRootOrAdminRole(...allowedRoles) {
+  const normalizedRoles = allowedRoles.map(role => String(role).toLowerCase());
+  return (req, res, next) => {
+    if (accountType(req.user) === 'root_admin') return next();
+    const adminRole = String(req.user?.adminRole || req.user?.admin_role || '').toLowerCase();
+    if (accountType(req.user) === 'admin' && normalizedRoles.includes(adminRole)) return next();
+    return res.status(403).json({ error: 'Insufficient permission' });
+  };
+}
+
 function requirePermission(permission) {
   return (req, res, next) => {
     if (accountType(req.user) === 'root_admin') return next();
@@ -62,4 +72,4 @@ function requireEmployeeSelfOrAnyPermission(permissions, paramName = 'employeeId
   };
 }
 
-module.exports = { accountType, requireRootAdmin, requireAdmin, requirePermission, requireAnyPermission, requireEmployeeSelfOrPermission, requireEmployeeOrPermission, requireEmployeeSelfOrAnyPermission };
+module.exports = { accountType, requireRootAdmin, requireAdmin, requireRootOrAdminRole, requirePermission, requireAnyPermission, requireEmployeeSelfOrPermission, requireEmployeeOrPermission, requireEmployeeSelfOrAnyPermission };

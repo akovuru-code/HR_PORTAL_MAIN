@@ -2,81 +2,16 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 const authenticateToken = require('../middleware/auth');
-const { requireAdmin, accountType } = require('../middleware/authorization');
+const { requireAdmin, requireRootAdmin, requireRootOrAdminRole, accountType } = require('../middleware/authorization');
 const Employee = require('../models/employee');
 const EditRequest = require('../models/editRequest');
 const Document = require('../models/document');
 const TimesheetEntry = require('../models/timesheetEntry');
+const TimesheetWeeklySummary = require('../models/timesheetWeeklySummary');
 
 
 const AdminNote = require('../models/adminNote');
-const nodemailer = require('nodemailer');
-
-//Invitation mail configuration
-const companyMailConfig = {
-  "Siritek Inc": {
-    service: "gmail",
-    user: process.env.SIRITEK_EMAIL,
-    pass: process.env.SIRITEK_PASS,
-    displayName: "Siritek Inc HR Team",
-  },
-
-  "Gannusoftware": {
-    service: "gmail",
-    user: process.env.GANNU_EMAIL,
-    pass: process.env.GANNU_PASS,
-    displayName: "Gannusoftware HR Team",
-  },
-
-  "Savvyinfosystems": {
-    service: "zoho",
-    user: process.env.SAVVY_EMAIL,
-    pass: process.env.SAVVY_PASS,
-    displayName: "Savvyinfosystems HR Team",
-  },
-
-  "Globalinfotech Inc": {
-    service: "gmail",
-    user: process.env.GLOBAL_EMAIL,
-    pass: process.env.GLOBAL_PASS,
-    displayName: "Globalinfotech HR Team",
-  },
-};
-
-const getTransporter = (company) => {
-
-  const config =
-    companyMailConfig[company] ||
-    companyMailConfig["Siritek Inc"];
-
-  // Zoho Mail
-  if (config.service === "zoho") {
-    return nodemailer.createTransport({
-      host: "smtp.zoho.com",
-      port: 465,
-      secure: true,
-
-      auth: {
-        user: config.user,
-        pass: config.pass,
-      },
-
-    });
-
-  }
-
-  // Gmail (default)
-  return nodemailer.createTransport({
-    service: "gmail",
-
-    auth: {
-      user: config.user,
-      pass: config.pass,
-    },
-
-  });
-
-};
+const { getCompanyMailConfig, sendCompanyEmail } = require('../services/companyMailService');
 
 const Announcement = require('../models/announcement');
 const WorkEmployer = require('../models/workEmployer');
@@ -85,6 +20,42 @@ const CompanySnapshot = require('../models/companySnapshot');
 const Invoice = require('../models/invoice');
 const VendorEmployeeRate = require('../models/vendorEmployeeRate');
 const Recruiting = require('../models/recruiting');
+const { User } = require('../models/user');
+const AdminActionRequest = require('../models/adminActionRequest');
+const AdminNotification = require('../models/adminNotification');
+const PasswordResetRequest = require('../models/passwordResetRequest');
+const PerformanceReportReplacementRequest = require('../models/performanceReportReplacementRequest');
+const passwordResetController = require('../controllers/passwordResetController');
+const { requireApprovedDelete, requireApprovedEdit, consumeDeleteApproval, consumeEditApproval } = require('../services/deleteAuthorizationService');
+const { createTimesheetPdf, createMonthlyTimesheetPdf, safeFilenamePart } = require('../services/timesheetPdfService');
+
+function dateKeyFromUtcDate(date) { return date.toISOString().slice(0, 10); }
+function normalizeWeekStart(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + (date.getUTCDay() === 0 ? -6 : 1 - date.getUTCDay()));
+  return dateKeyFromUtcDate(date);
+}
+function weekDateKeys(weekStart) {
+  const start = new Date(`${weekStart}T00:00:00.000Z`);
+  return Array.from({ length: 7 }, (_, index) => { const date = new Date(start); date.setUTCDate(date.getUTCDate() + index); return dateKeyFromUtcDate(date); });
+}
+function monthDateBounds(value) {
+  if (!/^\d{4}-\d{2}$/.test(String(value || ''))) return null;
+  const [year, month] = value.split('-').map(Number);
+  if (month < 1 || month > 12) return null;
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  if (start.getUTCFullYear() !== year || start.getUTCMonth() !== month - 1) return null;
+  const end = new Date(Date.UTC(year, month, 0));
+  return { start: dateKeyFromUtcDate(start), end: dateKeyFromUtcDate(end) };
+}
+function submissionStatus(entries) {
+  const statuses = entries.map(entry => entry.status);
+  if (statuses.some(status => status === 'Rejected')) return 'Rejected';
+  if (statuses.every(status => status === 'Approved')) return 'Approved';
+  return 'Submitted';
+}
 
 // Every /api/admin operation requires an administrative account. Fine-grained
 // permission checks are applied as the RBAC rollout expands individual modules.
@@ -95,7 +66,7 @@ router.use(authenticateToken, requireAdmin, (req, res, next) => {
   const path = req.path.toLowerCase();
   let permission = 'operations:manage';
   if (path === '/notes' || path.startsWith('/notes/')) return next();
-  if (path === '/growth' || path === '/alerts' || path === '/status-summary') permission = 'dashboard:view';
+  if (path === '/growth' || path === '/alerts' || path.startsWith('/alerts/') || path === '/status-summary') permission = 'dashboard:view';
   else if (path.includes('edit-requests')) permission = 'employee_modification:approve';
   else if (path.includes('timesheet')) {
     permission = (path.endsWith('/approve') || path.endsWith('/reject')) ? 'timesheet:approve'
@@ -146,9 +117,7 @@ ${emailBody ? `
   </a>
 </div>
 `;
-    const config =
-      companyMailConfig[company] ||
-      companyMailConfig["Siritek Inc"];
+    const config = getCompanyMailConfig(company);
 
     // Check whether email is configured for the selected company
     if (!config.user || !config.pass) {
@@ -156,9 +125,8 @@ ${emailBody ? `
         error: `Email is not configured for ${company}`
       });
     }
-    const transporter = getTransporter(company);
-    await transporter.sendMail({
-      from: `"${config.displayName}" <${config.user}>`,
+    await sendCompanyEmail({
+      company,
       to: email,
       subject: emailSubject || `Welcome to ${company || 'the company'} — Complete your Onboarding Process`,
       html: emailBodyContent,
@@ -182,6 +150,34 @@ router.get('/alerts', authenticateToken, async (req, res) => {
 
     const isRoot = accountType(req.user) === 'root_admin';
     const hasPermission = permission => isRoot || (req.user.permissions || []).includes(permission);
+    const isHrAdmin = accountType(req.user) === 'admin'
+      && String(req.user.adminRole || req.user.admin_role || '').toLowerCase() === 'hr';
+
+    // Persistent, recipient-specific alerts currently used for Job Opening
+    // notifications. Existing computed alerts below remain unchanged.
+    const notifications = await AdminNotification.findAll({
+      where: { recipientId: req.user.id, readAt: null },
+      order: [['created_at', 'DESC']],
+    });
+    for (const notification of notifications) {
+      if (notification.type !== 'job_opening_created') continue;
+      // Do not expose legacy or misrouted job-opening notifications to a
+      // non-HR account. Other alert types and their existing RBAC are intact.
+      if (!isHrAdmin) continue;
+      const data = notification.payload || {};
+      alerts.push({
+        type: 'job_opening',
+        notificationId: notification.id,
+        message: `New Job Opening: ${data.jobRole || `Job #${notification.resourceId}`}`,
+        resourceType: notification.resourceType,
+        resourceId: notification.resourceId,
+        creatorName: data.createdBy || 'Admin',
+        creatorRole: data.creatorRole || 'Admin',
+        technology: data.technology || '',
+        experience: data.experience || '',
+        requestedAt: notification.createdAt,
+      });
+    }
 
     // 1. Pending edit requests are visible only to their authorized approvers.
     const editRequests = hasPermission('employee_modification:approve')
@@ -194,16 +190,113 @@ router.get('/alerts', authenticateToken, async (req, res) => {
       });
       const erEmpMap = Object.fromEntries(erEmployees.map(e => [e.employee_id, e]));
       for (const er of editRequests) {
+        // Password resets have a dedicated Root Admin-only workflow.
+        if (er.requestType === 'PASSWORD_RESET_REQUEST') continue;
         const emp = erEmpMap[er.employeeId];
         const name = emp
           ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim()
           : 'An employee';
         const section = er.sectionKey || 'details';
-        const isPasswordReset = er.requestType === 'PASSWORD_RESET_REQUEST';
-        const message = isPasswordReset
-          ? `${name} requested a password reset`
-          : `${name} requested to edit ${section} details`;
+        const message = `${name} requested to edit ${section} details`;
         alerts.push({ type: 'request', message, id: er.id, canApprove: true });
+      }
+    }
+
+    // Dedicated password-reset alerts are visible to Root Admin only.
+    if (isRoot) {
+      const replacementRequests = await PerformanceReportReplacementRequest.findAll({
+        where: { status: 'pending' },
+        order: [['created_at', 'ASC']],
+      });
+      const replacementEmployeeIds = [...new Set(replacementRequests.map(request => request.employeeId))];
+      const replacementEmployees = replacementEmployeeIds.length
+        ? await Employee.findAll({ where: { employee_id: { [Op.in]: replacementEmployeeIds } }, attributes: ['employee_id', 'name', 'firstName', 'lastName', 'email'] })
+        : [];
+      const replacementEmployeeById = Object.fromEntries(replacementEmployees.map(employee => [employee.employee_id, employee]));
+      for (const request of replacementRequests) {
+        const employee = replacementEmployeeById[request.employeeId];
+        const name = employee?.name || [employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || employee?.email || 'Employee';
+        alerts.push({
+          type: 'performance_report_replacement_request',
+          requestKind: 'performance_report_replacement',
+          id: request.id,
+          canApprove: true,
+          rootOnly: true,
+          message: `${name} requested a Performance Report replacement`,
+          employeeName: name,
+          companyName: request.companyNameSnapshot,
+          reviewType: request.reviewType === 'MID_YEAR' ? 'Mid-Year Performance Review' : 'Year-End Performance Review',
+          reviewYear: request.reviewYear,
+          reason: request.reason,
+          requestedAt: request.createdAt,
+          status: request.status,
+        });
+      }
+
+      const resetRequests = await PasswordResetRequest.findAll({
+        where: { status: { [Op.in]: ['pending', 'delivery_failed'] } },
+        order: [['created_at', 'ASC']],
+      });
+      const requesterIds = [...new Set(resetRequests.map(request => request.userId))];
+      const requesters = requesterIds.length
+        ? await User.findAll({ where: { id: { [Op.in]: requesterIds } }, attributes: ['id', 'email'] })
+        : [];
+      const requesterById = Object.fromEntries(requesters.map(user => [user.id, user]));
+      const emails = requesters.map(user => user.email).filter(Boolean);
+      const employees = emails.length
+        ? await Employee.findAll({ where: { email: { [Op.in]: emails } }, attributes: ['email', 'name', 'firstName', 'lastName'] })
+        : [];
+      const employeeByEmail = Object.fromEntries(employees.map(employee => [String(employee.email).toLowerCase(), employee]));
+      for (const request of resetRequests) {
+        const requester = requesterById[request.userId];
+        const employee = employeeByEmail[String(requester?.email || '').toLowerCase()];
+        const userName = employee?.name || [employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || requester?.email || 'User';
+        alerts.push({
+          type: 'password_reset_request',
+          requestKind: 'password_reset',
+          id: request.id,
+          canApprove: true,
+          deliveryFailed: request.status === 'delivery_failed',
+          message: `${userName} requested a password reset`,
+          resetUserName: userName,
+          resetUserEmail: requester?.email || '',
+          reason: request.reason,
+          requestedAt: request.createdAt,
+          status: request.status,
+        });
+      }
+    }
+
+    // Root Admin reviews one-time edit/delete permissions requested by other admins.
+    if (isRoot) {
+      const actionRequests = await AdminActionRequest.findAll({
+        where: { status: 'pending' },
+        order: [['created_at', 'ASC']],
+      });
+      const requesterIds = [...new Set(actionRequests.map(request => request.requesterId))];
+      const requesters = requesterIds.length
+        ? await User.findAll({ where: { id: { [Op.in]: requesterIds } }, attributes: ['id', 'email', 'adminRole'] })
+        : [];
+      const requesterById = Object.fromEntries(requesters.map(user => [user.id, user]));
+      for (const request of actionRequests) {
+        const requester = requesterById[request.requesterId];
+        const requesterName = requester?.email || `Admin #${request.requesterId}`;
+        alerts.push({
+          type: 'admin_action_request',
+          requestKind: 'admin_action',
+          id: request.id,
+          canApprove: true,
+          message: `${requesterName} requested ${request.actionType} permission for ${request.resourceLabel}`,
+          actionType: request.actionType,
+          resourceType: request.resourceType,
+          resourceLabel: request.resourceLabel,
+          resourceId: request.resourceId,
+          requesterName,
+          requesterRole: requester?.adminRole || request.requesterRole || 'admin',
+          status: request.status,
+          reason: request.reason,
+          requestedAt: request.createdAt,
+        });
       }
     }
 
@@ -304,30 +397,79 @@ router.get('/alerts', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/admin/timesheets — employees with submitted entries
+// GET /api/admin/timesheets — reviewable detailed entries and weekly quick submissions.
+// Weekly quick entries are intentionally grouped by employee + Monday week start so an
+// admin action can never accidentally affect another week for the same employee.
 router.get('/timesheets', authenticateToken, async (req, res) => {
   try {
     const entries = await TimesheetEntry.findAll({
       where: { status: ['Submitted', 'Approved', 'Rejected'] },
-      attributes: ['employee_id', 'hours', 'project', 'client', 'status', 'adminComment'],
+      attributes: ['employee_id', 'dateKey', 'hours', 'project', 'client', 'status', 'adminComment', 'entrySource'],
     });
 
     const empIds = [...new Set(entries.map(e => e.employee_id))];
     if (!empIds.length) return res.json({ employees: [] });
 
-    const employees = await Employee.findAll({
-      where: { employee_id: { [Op.in]: empIds } },
-      attributes: ['employee_id', 'firstName', 'lastName', 'name'],
-    });
+    const [employees, weeklySummaries] = await Promise.all([
+      Employee.findAll({
+        where: { employee_id: { [Op.in]: empIds } },
+        attributes: ['employee_id', 'firstName', 'lastName', 'name'],
+      }),
+      TimesheetWeeklySummary.findAll({
+        where: { employeeId: { [Op.in]: empIds } },
+      attributes: ['employeeId', 'weekStart', 'statusReport', 'projectName'],
+      }),
+    ]);
     const empMap = Object.fromEntries(employees.map(e => [e.employee_id, e]));
+    const summaryMap = new Map(weeklySummaries.map(summary => [
+      `${summary.employeeId}:${summary.weekStart}`,
+      summary,
+    ]));
 
     const grouped = {};
+    const weeklyGroups = new Map();
     for (const entry of entries) {
       const eid = entry.employee_id;
+      if (entry.entrySource === 'weekly_quick') {
+        const weekStart = normalizeWeekStart(entry.dateKey);
+        if (!weekStart) continue;
+        const key = `${eid}:${weekStart}`;
+        if (!weeklyGroups.has(key)) {
+          const emp = empMap[eid];
+          weeklyGroups.set(key, {
+            id: `weekly:${eid}:${weekStart}`,
+            employeeId: eid,
+            submissionType: 'weekly_quick',
+            weekStart,
+            weekEnd: weekDateKeys(weekStart)[6],
+            name: emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.name : `Employee ${eid}`,
+            // The source remains submissionType; project is an actual selected
+            // project when the weekly submission has one.
+            project: entry.project && entry.project !== 'Weekly Quick Entry' ? entry.project : '—',
+            client: entry.client || '—',
+            vendor: '—',
+            hours: 0,
+            status: 'Submitted',
+            dailyHours: Object.fromEntries(weekDateKeys(weekStart).map(dateKey => [dateKey, 0])),
+            adminComment: '',
+            _entries: [],
+          });
+        }
+        const group = weeklyGroups.get(key);
+        group.hours += Number(entry.hours) || 0;
+        group.dailyHours[entry.dateKey] = (group.dailyHours[entry.dateKey] || 0) + (Number(entry.hours) || 0);
+        if (entry.adminComment) group.adminComment = entry.adminComment;
+        if (entry.client && group.client === '—') group.client = entry.client;
+        group._entries.push(entry);
+        continue;
+      }
+
       if (!grouped[eid]) {
         const emp = empMap[eid];
         grouped[eid] = {
           id: eid,
+          employeeId: eid,
+          submissionType: 'detailed',
           name: emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.name : `Employee ${eid}`,
           project: entry.project || '—',
           client: entry.client || '—',
@@ -344,34 +486,217 @@ router.get('/timesheets', authenticateToken, async (req, res) => {
     }
 
     for (const eid of Object.keys(grouped)) {
-      const empEntries = entries.filter(e => e.employee_id === parseInt(eid));
-      const statuses = empEntries.map(e => e.status);
-      if (statuses.every(s => s === 'Approved')) grouped[eid].status = 'Approved';
-      else if (statuses.some(s => s === 'Rejected')) grouped[eid].status = 'Rejected';
-      else grouped[eid].status = 'Submitted';
+      const empEntries = entries.filter(e => e.employee_id === parseInt(eid) && e.entrySource !== 'weekly_quick');
+      grouped[eid].status = submissionStatus(empEntries);
     }
 
-    res.json({ employees: Object.values(grouped) });
+    const weeklySubmissions = Array.from(weeklyGroups.values()).map(group => {
+      group.status = submissionStatus(group._entries);
+      group.weeklyStatusReport = summaryMap.get(`${group.employeeId}:${group.weekStart}`)?.statusReport || '';
+      delete group._entries;
+      return group;
+    });
+
+    res.json({ employees: [...Object.values(grouped), ...weeklySubmissions] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// GET /api/admin/timesheets/:employeeId/weeks/:weekStart — exact weekly quick submission
+router.get('/timesheets/:employeeId/weeks/:weekStart', authenticateToken, async (req, res) => {
+  try {
+    const weekStart = normalizeWeekStart(req.params.weekStart);
+    if (!weekStart) return res.status(400).json({ error: 'weekStart must be a valid YYYY-MM-DD date' });
+    const dateKeys = weekDateKeys(weekStart);
+    const employeeId = Number(req.params.employeeId);
+    if (!Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ error: 'Invalid employee ID' });
+
+    const [entries, allWeekEntries, weeklySummary] = await Promise.all([
+      TimesheetEntry.findAll({
+        where: { employee_id: employeeId, dateKey: { [Op.in]: dateKeys }, entrySource: 'weekly_quick' },
+        order: [['dateKey', 'ASC']],
+      }),
+      TimesheetEntry.findAll({
+        where: { employee_id: employeeId, dateKey: { [Op.in]: dateKeys } },
+        attributes: ['dateKey', 'hours'],
+      }),
+      TimesheetWeeklySummary.findOne({
+        where: { employeeId, weekStart },
+        attributes: ['weekStart', 'statusReport'],
+      }),
+    ]);
+    if (!entries.length) return res.status(404).json({ error: 'Weekly quick-entry submission not found' });
+
+    const dailyHours = Object.fromEntries(dateKeys.map(dateKey => [dateKey, 0]));
+    allWeekEntries.forEach(entry => {
+      dailyHours[entry.dateKey] = (dailyHours[entry.dateKey] || 0) + (Number(entry.hours) || 0);
+    });
+    res.json({
+      submissionType: 'weekly_quick',
+      employeeId,
+      weekStart,
+      weekEnd: dateKeys[6],
+      entries: entries.map(entry => {
+        const value = entry.toJSON();
+        return value.project === 'Weekly Quick Entry' ? { ...value, project: null } : value;
+      }),
+      dailyHours,
+      totalHours: Object.values(dailyHours).reduce((total, hours) => total + hours, 0),
+      status: submissionStatus(entries),
+      weeklyStatusReport: weeklySummary?.statusReport || '',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/timesheets/:employeeId/weeks/:weekStart/download
+// The route is protected by the existing /api/admin timesheet:view policy.
+router.get('/timesheets/:employeeId/weeks/:weekStart/download', authenticateToken, async (req, res) => {
+  try {
+    const weekStart = normalizeWeekStart(req.params.weekStart);
+    const employeeId = Number(req.params.employeeId);
+    if (!weekStart || !Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ error: 'A valid employee and week start date are required.' });
+    const dates = weekDateKeys(weekStart);
+    const [employee, entries, summary] = await Promise.all([
+      Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name'] }),
+      TimesheetEntry.findAll({ where: { employee_id: employeeId, dateKey: { [Op.in]: dates } }, order: [['dateKey', 'ASC'], ['id', 'ASC']] }),
+      TimesheetWeeklySummary.findOne({ where: { employeeId, weekStart }, attributes: ['weekStart', 'statusReport', 'projectName'] }),
+    ]);
+    if (!employee || !entries.length) return res.status(404).json({ error: 'Timesheet entries were not found for the selected employee and week.' });
+    const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || `Employee ${employeeId}`;
+    const firstEntryWithValue = entries.find(entry => entry.client || entry.project);
+    const pdf = await createTimesheetPdf({
+      employeeName,
+      weekStart,
+      weekEnd: dates[6],
+      entries,
+      status: submissionStatus(entries),
+      statusReport: summary?.statusReport || '',
+      projectName: summary?.projectName || firstEntryWithValue?.project || '',
+      clientName: firstEntryWithValue?.client || '',
+    });
+    const filename = `${safeFilenamePart(employeeName).replace(/\s+/g, '_')}_Weekly_Timesheet_${weekStart}_to_${dates[6]}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(Buffer.from(pdf));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/timesheets/:employeeId/months/:monthKey/download
+// A calendar-month download deliberately queries dateKey boundaries rather
+// than full weekly ranges, so overlapping weeks cannot leak adjacent dates.
+router.get('/timesheets/:employeeId/months/:monthKey/download', authenticateToken, async (req, res) => {
+  try {
+    const employeeId = Number(req.params.employeeId);
+    const bounds = monthDateBounds(req.params.monthKey);
+    if (!bounds || !Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ error: 'A valid employee and calendar month are required.' });
+
+    const [employee, entries] = await Promise.all([
+      Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name'] }),
+      TimesheetEntry.findAll({
+        where: { employee_id: employeeId, dateKey: { [Op.between]: [bounds.start, bounds.end] } },
+        order: [['dateKey', 'ASC'], ['id', 'ASC']],
+      }),
+    ]);
+    if (!employee || !entries.length) return res.status(404).json({ error: 'Timesheet entries were not found for the selected employee and month.' });
+
+    const weekStarts = [...new Set(entries.map(entry => normalizeWeekStart(entry.dateKey)).filter(Boolean))];
+    const summaries = await TimesheetWeeklySummary.findAll({
+      where: { employeeId, weekStart: { [Op.in]: weekStarts } },
+      attributes: ['weekStart', 'statusReport'],
+    });
+    const summaryByWeek = new Map(summaries.map(summary => [summary.weekStart, summary]));
+    const grouped = new Map();
+    for (const entry of entries) {
+      const weekStart = normalizeWeekStart(entry.dateKey);
+      if (!grouped.has(weekStart)) grouped.set(weekStart, []);
+      grouped.get(weekStart).push(entry);
+    }
+    const weeks = [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([weekStart, weekEntries]) => ({
+      periodStart: weekEntries[0].dateKey,
+      periodEnd: weekEntries[weekEntries.length - 1].dateKey,
+      entries: weekEntries,
+      status: submissionStatus(weekEntries),
+      statusReport: summaryByWeek.get(weekStart)?.statusReport || '',
+    }));
+    const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || `Employee ${employeeId}`;
+    const pdf = await createMonthlyTimesheetPdf({ employeeName, monthStart: bounds.start, monthEnd: bounds.end, weeks });
+    const monthName = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(`${bounds.start}T00:00:00.000Z`)).replace(/\s+/g, '_');
+    const filename = `${safeFilenamePart(employeeName).replace(/\s+/g, '_')}_Monthly_Timesheet_${monthName}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(Buffer.from(pdf));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+async function updateWeeklyQuickSubmission(req, res, status) {
+  const weekStart = normalizeWeekStart(req.params.weekStart);
+  if (!weekStart) return res.status(400).json({ error: 'weekStart must be a valid YYYY-MM-DD date' });
+  const employeeId = Number(req.params.employeeId);
+  if (!Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ error: 'Invalid employee ID' });
+  const [updated] = await TimesheetEntry.update(
+    { status },
+    {
+      where: {
+        employee_id: employeeId,
+        dateKey: { [Op.in]: weekDateKeys(weekStart) },
+        entrySource: 'weekly_quick',
+        status: 'Submitted',
+      },
+    },
+  );
+  if (!updated) return res.status(404).json({ error: 'No submitted weekly quick-entry rows found for this week' });
+  return res.json({ success: true, updated, status });
+}
+
+// These actions are scoped to the selected week, unlike the legacy employee-wide actions below.
+router.post('/timesheets/:employeeId/weeks/:weekStart/approve', authenticateToken, async (req, res) => {
+  try { await updateWeeklyQuickSubmission(req, res, 'Approved'); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+router.post('/timesheets/:employeeId/weeks/:weekStart/reject', authenticateToken, async (req, res) => {
+  try { await updateWeeklyQuickSubmission(req, res, 'Rejected'); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/admin/timesheets/:employeeId/entries
 router.get('/timesheets/:employeeId/entries', authenticateToken, async (req, res) => {
   try {
-    const entries = await TimesheetEntry.findAll({
-      where: { employee_id: req.params.employeeId },
-      order: [['dateKey', 'ASC']],
+    const [entries, weeklySummaries] = await Promise.all([
+      TimesheetEntry.findAll({
+        where: { employee_id: req.params.employeeId },
+        order: [['dateKey', 'ASC']],
+      }),
+      TimesheetWeeklySummary.findAll({
+        where: { employeeId: req.params.employeeId },
+        // The Admin viewer only needs the employee/week key and report text.
+        // Requesting timestamp aliases here made PostgreSQL look for a quoted
+        // "createdAt" column even though this table stores created_at.
+        attributes: ['id', 'weekStart', 'statusReport'],
+        order: [['week_start', 'ASC']],
+      }),
+    ]);
+    // This additive field is keyed by the requested employee and is consumed
+    // by the Admin Week view using the displayed Monday weekStart.
+    // Legacy quick rows stored the source label in `project`. Preserve those
+    // rows in the database, but never expose that method label as a project.
+    const adminEntries = entries.map(entry => {
+      const value = entry.toJSON();
+      return value.entrySource === 'weekly_quick' && value.project === 'Weekly Quick Entry' ? { ...value, project: null } : value;
     });
-    res.json({ entries });
+    res.json({ entries: adminEntries, weeklySummaries });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // PATCH /api/admin/timesheets/entry/:id — edit single entry
-router.patch('/timesheets/entry/:id', authenticateToken, async (req, res) => {
+router.patch('/timesheets/entry/:id', authenticateToken, requireApprovedEdit('timesheet_entry'), async (req, res) => {
   try {
     const entry = await TimesheetEntry.findByPk(req.params.id);
     if (!entry) return res.status(404).json({ error: 'Entry not found' });
@@ -381,6 +706,7 @@ router.patch('/timesheets/entry/:id', authenticateToken, async (req, res) => {
     if (status !== undefined) updates.status = status;
     if (adminComment !== undefined) updates.adminComment = adminComment;
     await entry.update(updates);
+    await consumeEditApproval(req, 'timesheet_entry', req.params.id);
     res.json({ entry });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -414,7 +740,7 @@ router.post('/timesheets/:employeeId/reject', authenticateToken, async (req, res
 });
 
 // PATCH /api/admin/timesheets/:employeeId/edit
-router.patch('/timesheets/:employeeId/edit', authenticateToken, async (req, res) => {
+router.patch('/timesheets/:employeeId/edit', authenticateToken, requireApprovedEdit('timesheet_employee', req => req.params.employeeId), async (req, res) => {
   try {
     const { hours } = req.body;
     const entries = await TimesheetEntry.findAll({
@@ -423,6 +749,7 @@ router.patch('/timesheets/:employeeId/edit', authenticateToken, async (req, res)
     if (!entries.length) return res.status(404).json({ error: 'No entries found' });
     const hoursEach = parseFloat(hours) / entries.length;
     for (const entry of entries) await entry.update({ hours: hoursEach });
+    await consumeEditApproval(req, 'timesheet_employee', req.params.employeeId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -452,7 +779,29 @@ router.post('/timesheets/:employeeId/comment', authenticateToken, async (req, re
 // GET /api/admin/employees
 router.get('/employees', authenticateToken, async (req, res) => {
   try {
+    // Employee profile rows can also be created for authenticated Admin users by
+    // shared profile/dashboard flows. The Employee table itself has no account
+    // type, so establish the authoritative employee-only set from users first.
+    // This intentionally uses a positive account-type check so Root Admin and
+    // every current/future Admin role are excluded without maintaining a list.
+    const employeeAccounts = await User.findAll({
+      where: { accountType: 'employee' },
+      attributes: ['email'],
+    });
+    const employeeEmails = employeeAccounts
+      .map(account => String(account.email || '').trim())
+      .filter(Boolean);
+    const normalizedEmployeeEmails = employeeEmails.map(email => email.toLowerCase());
+
+    if (!employeeEmails.length) {
+      return res.json({ employees: [] });
+    }
+
     const employees = await Employee.findAll({
+      where: Employee.sequelize.where(
+        Employee.sequelize.fn('LOWER', Employee.sequelize.col('email')),
+        { [Op.in]: normalizedEmployeeEmails },
+      ),
       attributes: [
         'employee_id', 'firstName', 'lastName', 'name',
         'jobRole', 'visaType', 'clientName', 'address', 'presentAddress',
@@ -531,8 +880,123 @@ router.get('/employees', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/admin/employee-associations
+// Read-only consolidated view for Root, HR, and Accounts Admins. It derives
+// every value from the existing employee, work-association, and vendor-rate
+// records; this endpoint does not maintain a second copy of those fields.
+router.get('/employee-associations', requireRootOrAdminRole('hr', 'accounts', 'payroll'), async (req, res) => {
+  try {
+    const [employees, associationRows, vendorDefinitions, vendorRates] = await Promise.all([
+      Employee.findAll({
+        attributes: ['employee_id', 'firstName', 'lastName', 'name', 'profileStatus', 'visaType'],
+        order: [['firstName', 'ASC'], ['lastName', 'ASC'], ['name', 'ASC']],
+      }),
+      WorkClientDetail.findAll({
+        where: {
+          employee_id: { [Op.ne]: null },
+          type: { [Op.in]: ['client', 'vendor', 'primeVendor'] },
+        },
+        attributes: ['employee_id', 'type', 'name'],
+      }),
+      WorkClientDetail.findAll({
+        where: { employee_id: null, type: 'vendor' },
+        attributes: ['id', 'name', 'meta'],
+      }),
+      VendorEmployeeRate.findAll({
+        attributes: ['vendor_id', 'employee_id', 'rate'],
+      }),
+    ]);
+
+    const uniqueValues = values => [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right));
+    const associationMap = new Map();
+    for (const row of associationRows) {
+      const employeeId = row.employee_id;
+      if (!associationMap.has(employeeId)) associationMap.set(employeeId, { client: [], vendor: [], primeVendor: [] });
+      associationMap.get(employeeId)[row.type]?.push(row.name);
+    }
+
+    const vendorById = new Map(vendorDefinitions.map(vendor => [vendor.id, vendor]));
+    const ratesByEmployee = new Map();
+    for (const rate of vendorRates) {
+      const vendor = vendorById.get(rate.vendor_id);
+      const vendorName = String(vendor?.name || '').trim();
+      const amount = Number(rate.rate);
+      // A Vendor Employee Rate is valid for this view only when its Vendor ID
+      // resolves to an existing, named Vendor definition. This prevents stale
+      // rate records from being rendered as "—: 15.00/hr".
+      if (!vendorName || !Number.isFinite(amount)) continue;
+      if (!ratesByEmployee.has(rate.employee_id)) ratesByEmployee.set(rate.employee_id, []);
+      ratesByEmployee.get(rate.employee_id).push({
+        vendorId: vendor.id,
+        vendorName,
+        rate: amount,
+        currency: String(vendor?.meta?.currency || '').trim() || null,
+      });
+    }
+
+    const rows = employees.map(employee => {
+      const associations = associationMap.get(employee.employee_id) || { client: [], vendor: [], primeVendor: [] };
+      const employeeName = [employee.firstName, employee.lastName].filter(Boolean).join(' ') || String(employee.name || '').trim();
+      // Employee records may be created as email-only placeholders before
+      // Personal Info is completed. They are not association rows and are not
+      // actionable in this named business overview, so leave them out here.
+      if (!employeeName) return null;
+
+      const validRateAssociations = ratesByEmployee.get(employee.employee_id) || [];
+      const vendorNamesWithRates = new Set(validRateAssociations.map(item => item.vendorName.toLowerCase()));
+      const vendorAssociations = [
+        ...validRateAssociations,
+        ...uniqueValues(associations.vendor)
+          .filter(vendorName => !vendorNamesWithRates.has(vendorName.toLowerCase()))
+          .map(vendorName => ({ vendorId: null, vendorName, rate: null, currency: null })),
+      ].sort((left, right) => left.vendorName.localeCompare(right.vendorName));
+      const vendorNames = uniqueValues(vendorAssociations.map(item => item.vendorName));
+      const projectStatus = employee.profileStatus === 'In Project' ? 'In Project' : 'Not in Project';
+      return {
+        employeeId: employee.employee_id,
+        employeeName,
+        projectStatus,
+        vendorNames,
+        clientNames: uniqueValues(associations.client),
+        primeVendorNames: uniqueValues(associations.primeVendor),
+        vendorAssociations,
+        visaStatus: String(employee.visaType || '').trim() || null,
+      };
+    }).filter(Boolean);
+
+    const queryValue = key => String(req.query[key] || '').trim();
+    const includesValue = (values, query) => !query || values.some(value => value.toLowerCase() === query.toLowerCase());
+    const search = queryValue('search').toLowerCase();
+    const projectStatus = queryValue('projectStatus');
+    const vendor = queryValue('vendor');
+    const client = queryValue('client');
+    const visaStatus = queryValue('visaStatus');
+
+    const filteredRows = rows.filter(row => (
+      (!search || row.employeeName.toLowerCase().includes(search))
+      && (!projectStatus || row.projectStatus === projectStatus)
+      && includesValue(row.vendorNames, vendor)
+      && includesValue(row.clientNames, client)
+      && (!visaStatus || row.visaStatus?.toLowerCase() === visaStatus.toLowerCase())
+    ));
+
+    res.json({
+      employees: filteredRows,
+      filterOptions: {
+        vendors: uniqueValues(rows.flatMap(row => row.vendorNames)),
+        clients: uniqueValues(rows.flatMap(row => row.clientNames)),
+        visaStatuses: uniqueValues(rows.map(row => row.visaStatus)),
+      },
+    });
+  } catch (err) {
+    console.error('[admin/employee-associations] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /api/admin/employees/:id/terminate-date
-router.patch('/employees/:id/terminate-date', authenticateToken, async (req, res) => {
+router.patch('/employees/:id/terminate-date', authenticateToken, requireApprovedEdit('employee'), async (req, res) => {
   try {
     const { empTerminateDate, empTerminateComments } = req.body;
     const employee = await Employee.findByPk(req.params.id);
@@ -562,6 +1026,7 @@ router.patch('/employees/:id/terminate-date', authenticateToken, async (req, res
     }
 
     await employee.update(updates);
+    await consumeEditApproval(req, 'employee', req.params.id);
     res.json({ success: true, empTerminateDate: employee.empTerminateDate });
   } catch (err) {
     console.error('[admin/employees/:id/terminate-date] error:', err);
@@ -620,7 +1085,7 @@ router.get('/employees/:id', authenticateToken, async (req, res) => {
       title: workEmployer?.designation || emp.jobRole || '—',
       client: clientDetail?.name || '—',
       location: emp.presentAddress?.city || emp.presentAddress?.state || emp.address || '—',
-      status: emp.profileStatus || 'On Bench',
+      status: emp.profileStatus || null,
       onboardingStatus: emp.onboardingStatus,
     });
   } catch (err) {
@@ -672,7 +1137,7 @@ router.post('/employees/:id/invoices', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/admin/employees/:id/invoices/:invoiceId
-router.patch('/employees/:id/invoices/:invoiceId', authenticateToken, async (req, res) => {
+router.patch('/employees/:id/invoices/:invoiceId', authenticateToken, requireApprovedEdit('invoice', req => req.params.invoiceId), async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ where: { id: req.params.invoiceId, employee_id: req.params.id } });
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -687,22 +1152,24 @@ router.patch('/employees/:id/invoices/:invoiceId', authenticateToken, async (req
       updatedBy: updatedBy ?? invoice.updatedBy,
     });
     await invoice.reload();
+    await consumeEditApproval(req, 'invoice', req.params.invoiceId);
     res.json({ invoice: formatInvoice(invoice) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // DELETE /api/admin/employees/:id/invoices/:invoiceId
-router.delete('/employees/:id/invoices/:invoiceId', authenticateToken, async (req, res) => {
+router.delete('/employees/:id/invoices/:invoiceId', authenticateToken, requireApprovedDelete('invoice', req => req.params.invoiceId), async (req, res) => {
   try {
     const invoice = await Invoice.findOne({ where: { id: req.params.invoiceId, employee_id: req.params.id } });
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
     await invoice.destroy();
+    await consumeDeleteApproval(req, 'invoice', req.params.invoiceId);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // PATCH /api/admin/documents/:id
-router.patch('/documents/:id', authenticateToken, async (req, res) => {
+router.patch('/documents/:id', authenticateToken, requireApprovedEdit('document'), async (req, res) => {
   try {
     const doc = await Document.findByPk(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
@@ -715,6 +1182,7 @@ router.patch('/documents/:id', authenticateToken, async (req, res) => {
     if (originalName !== undefined) updates.originalName = originalName;
     if (fileData !== undefined) updates.fileData = fileData;
     await doc.update(updates);
+    await consumeEditApproval(req, 'document', req.params.id);
     res.json({ document: doc });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -735,7 +1203,7 @@ router.get('/documents', authenticateToken, async (req, res) => {
 });
 
 // GET /api/admin/status-summary
-router.get('/status-summary', authenticateToken, async (req, res) => {
+router.get('/status-summary', requireRootAdmin, async (req, res) => {
   try {
     const employees = await Employee.findAll({
       attributes: ['profileStatus'],
@@ -1168,38 +1636,38 @@ router.post('/prime-vendors', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/admin/clients/:id
-router.patch('/clients/:id', authenticateToken, async (req, res) => {
-  try { res.json({ client: await updateWorkClientEntry('client', req.params.id, req.body) }); }
+router.patch('/clients/:id', authenticateToken, requireApprovedEdit('client'), async (req, res) => {
+  try { const client = await updateWorkClientEntry('client', req.params.id, req.body); await consumeEditApproval(req, 'client', req.params.id); res.json({ client }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // PATCH /api/admin/vendors/:id
-router.patch('/vendors/:id', authenticateToken, async (req, res) => {
-  try { res.json({ vendor: await updateWorkClientEntry('vendor', req.params.id, req.body) }); }
+router.patch('/vendors/:id', authenticateToken, requireApprovedEdit('vendor'), async (req, res) => {
+  try { const vendor = await updateWorkClientEntry('vendor', req.params.id, req.body); await consumeEditApproval(req, 'vendor', req.params.id); res.json({ vendor }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // PATCH /api/admin/prime-vendors/:id
-router.patch('/prime-vendors/:id', authenticateToken, async (req, res) => {
-  try { res.json({ primeVendor: await updateWorkClientEntry('primeVendor', req.params.id, req.body) }); }
+router.patch('/prime-vendors/:id', authenticateToken, requireApprovedEdit('prime_vendor'), async (req, res) => {
+  try { const primeVendor = await updateWorkClientEntry('primeVendor', req.params.id, req.body); await consumeEditApproval(req, 'prime_vendor', req.params.id); res.json({ primeVendor }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // DELETE /api/admin/clients/:id
-router.delete('/clients/:id', authenticateToken, async (req, res) => {
-  try { await deleteWorkClientEntry('client', req.params.id); res.json({ success: true }); }
+router.delete('/clients/:id', authenticateToken, requireApprovedDelete('client'), async (req, res) => {
+  try { await deleteWorkClientEntry('client', req.params.id); await consumeDeleteApproval(req, 'client', req.params.id); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // DELETE /api/admin/vendors/:id
-router.delete('/vendors/:id', authenticateToken, async (req, res) => {
-  try { await deleteWorkClientEntry('vendor', req.params.id); res.json({ success: true }); }
+router.delete('/vendors/:id', authenticateToken, requireApprovedDelete('vendor'), async (req, res) => {
+  try { await deleteWorkClientEntry('vendor', req.params.id); await consumeDeleteApproval(req, 'vendor', req.params.id); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // DELETE /api/admin/prime-vendors/:id
-router.delete('/prime-vendors/:id', authenticateToken, async (req, res) => {
-  try { await deleteWorkClientEntry('primeVendor', req.params.id); res.json({ success: true }); }
+router.delete('/prime-vendors/:id', authenticateToken, requireApprovedDelete('prime_vendor'), async (req, res) => {
+  try { await deleteWorkClientEntry('primeVendor', req.params.id); await consumeDeleteApproval(req, 'prime_vendor', req.params.id); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
@@ -1210,8 +1678,8 @@ router.post('/clients/:id/assign-employee', authenticateToken, async (req, res) 
 });
 
 // DELETE /api/admin/clients/:id/assign-employee/:employeeId
-router.delete('/clients/:id/assign-employee/:employeeId', authenticateToken, async (req, res) => {
-  try { await unassignEmployeeFromEntry('client', req.params.id, req.params.employeeId); res.json({ success: true }); }
+router.delete('/clients/:id/assign-employee/:employeeId', authenticateToken, requireApprovedDelete('client_employee_assignment', req => `${req.params.id}:${req.params.employeeId}`), async (req, res) => {
+  try { await unassignEmployeeFromEntry('client', req.params.id, req.params.employeeId); await consumeDeleteApproval(req, 'client_employee_assignment', `${req.params.id}:${req.params.employeeId}`); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
@@ -1222,8 +1690,8 @@ router.post('/vendors/:id/assign-employee', authenticateToken, async (req, res) 
 });
 
 // DELETE /api/admin/vendors/:id/assign-employee/:employeeId
-router.delete('/vendors/:id/assign-employee/:employeeId', authenticateToken, async (req, res) => {
-  try { await unassignEmployeeFromEntry('vendor', req.params.id, req.params.employeeId); res.json({ success: true }); }
+router.delete('/vendors/:id/assign-employee/:employeeId', authenticateToken, requireApprovedDelete('vendor_employee_assignment', req => `${req.params.id}:${req.params.employeeId}`), async (req, res) => {
+  try { await unassignEmployeeFromEntry('vendor', req.params.id, req.params.employeeId); await consumeDeleteApproval(req, 'vendor_employee_assignment', `${req.params.id}:${req.params.employeeId}`); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
@@ -1234,8 +1702,8 @@ router.post('/prime-vendors/:id/assign-employee', authenticateToken, async (req,
 });
 
 // DELETE /api/admin/prime-vendors/:id/assign-employee/:employeeId
-router.delete('/prime-vendors/:id/assign-employee/:employeeId', authenticateToken, async (req, res) => {
-  try { await unassignEmployeeFromEntry('primeVendor', req.params.id, req.params.employeeId); res.json({ success: true }); }
+router.delete('/prime-vendors/:id/assign-employee/:employeeId', authenticateToken, requireApprovedDelete('prime_vendor_employee_assignment', req => `${req.params.id}:${req.params.employeeId}`), async (req, res) => {
+  try { await unassignEmployeeFromEntry('primeVendor', req.params.id, req.params.employeeId); await consumeDeleteApproval(req, 'prime_vendor_employee_assignment', `${req.params.id}:${req.params.employeeId}`); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
@@ -1268,17 +1736,18 @@ router.post('/projects', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/admin/projects/:id
-router.patch('/projects/:id', authenticateToken, async (req, res) => {
+router.patch('/projects/:id', authenticateToken, requireApprovedEdit('project'), async (req, res) => {
   try {
     const { description, ...rest } = req.body;
     const project = await updateWorkClientEntry('project', req.params.id, { ...rest, comment: description });
+    await consumeEditApproval(req, 'project', req.params.id);
     res.json({ project: { ...formatProjectEntry(project), source: 'project' } });
   } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // DELETE /api/admin/projects/:id
-router.delete('/projects/:id', authenticateToken, async (req, res) => {
-  try { await deleteWorkClientEntry('project', req.params.id); res.json({ success: true }); }
+router.delete('/projects/:id', authenticateToken, requireApprovedDelete('project'), async (req, res) => {
+  try { await deleteWorkClientEntry('project', req.params.id); await consumeDeleteApproval(req, 'project', req.params.id); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
@@ -1293,17 +1762,18 @@ router.post('/projects/:id/assign-employee', authenticateToken, async (req, res)
 });
 
 // DELETE /api/admin/projects/:id/assign-employee/:employeeId
-router.delete('/projects/:id/assign-employee/:employeeId', authenticateToken, async (req, res) => {
+router.delete('/projects/:id/assign-employee/:employeeId', authenticateToken, requireApprovedDelete('project_employee_assignment', req => `${req.params.id}:${req.params.employeeId}`), async (req, res) => {
   try {
     const row = await WorkClientDetail.findOne({ where: { id: req.params.id } });
     if (!row) return res.status(404).json({ error: 'Entry not found' });
     await unassignEmployeeFromEntry(row.type, row.id, req.params.employeeId);
+    await consumeDeleteApproval(req, 'project_employee_assignment', `${req.params.id}:${req.params.employeeId}`);
     res.json({ success: true });
   } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // GET /api/admin/growth
-router.get('/growth', authenticateToken, async (req, res) => {
+router.get('/growth', requireRootAdmin, async (req, res) => {
   try {
     const today = new Date();
 
@@ -1378,11 +1848,12 @@ router.post('/announcements', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/admin/announcements/:id/expire
-router.patch('/announcements/:id/expire', authenticateToken, async (req, res) => {
+router.patch('/announcements/:id/expire', authenticateToken, requireApprovedEdit('announcement'), async (req, res) => {
   try {
     const ann = await Announcement.findByPk(req.params.id);
     if (!ann) return res.status(404).json({ error: 'Not found' });
     await ann.update({ status: 'Expired' });
+    await consumeEditApproval(req, 'announcement', req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1390,11 +1861,12 @@ router.patch('/announcements/:id/expire', authenticateToken, async (req, res) =>
 });
 
 // DELETE /api/admin/announcements/:id
-router.delete('/announcements/:id', authenticateToken, async (req, res) => {
+router.delete('/announcements/:id', authenticateToken, requireApprovedDelete('announcement'), async (req, res) => {
   try {
     const ann = await Announcement.findByPk(req.params.id);
     if (!ann) return res.status(404).json({ error: 'Not found' });
     await ann.destroy();
+    await consumeDeleteApproval(req, 'announcement', req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1443,6 +1915,7 @@ router.patch('/edit-requests/:id/approve', authenticateToken, async (req, res) =
   try {
     const er = await EditRequest.findByPk(req.params.id);
     if (!er) return res.status(404).json({ error: 'Edit request not found' });
+    if (er.requestType === 'PASSWORD_RESET_REQUEST') return res.status(409).json({ error: 'Password reset requests must use the Root Admin reset workflow' });
     if (er.status !== 'pending') return res.status(400).json({ error: 'Request is not pending' });
     await er.update({ status: 'approved' });
     res.json({ success: true });
@@ -1450,6 +1923,16 @@ router.patch('/edit-requests/:id/approve', authenticateToken, async (req, res) =
     console.error('[admin/edit-requests/approve] error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// PATCH /api/admin/alerts/:id/read
+router.patch('/alerts/:id/read', authenticateToken, async (req, res) => {
+  try {
+    const notification = await AdminNotification.findOne({ where: { id: req.params.id, recipientId: req.user.id } });
+    if (!notification) return res.status(404).json({ error: 'Alert not found' });
+    if (!notification.readAt) await notification.update({ readAt: new Date() });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // GET /api/admin/vendors/:id/employee-rates
@@ -1465,6 +1948,7 @@ router.patch('/edit-requests/:id/reject', authenticateToken, async (req, res) =>
   try {
     const er = await EditRequest.findByPk(req.params.id);
     if (!er) return res.status(404).json({ error: 'Edit request not found' });
+    if (er.requestType === 'PASSWORD_RESET_REQUEST') return res.status(409).json({ error: 'Password reset requests must use the Root Admin reset workflow' });
     if (er.status !== 'pending') return res.status(409).json({ error: 'Request has already been processed' });
     await er.update({ status: 'denied' });
     res.json({ success: true });
@@ -1473,5 +1957,9 @@ router.patch('/edit-requests/:id/reject', authenticateToken, async (req, res) =>
     res.status(500).json({ error: err.message });
   }
 });
+
+// Root Admin-only: password reset approvals never use generic edit requests.
+router.patch('/password-reset-requests/:id/approve', requireRootAdmin, passwordResetController.approve);
+router.patch('/password-reset-requests/:id/reject', requireRootAdmin, passwordResetController.reject);
 
 module.exports = router;

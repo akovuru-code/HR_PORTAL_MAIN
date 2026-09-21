@@ -1,6 +1,7 @@
 const Document = require('../models/document');
 const Employee = require('../models/employee');
 const AuditLog = require('../models/auditLog');
+const { consumeDeleteApproval } = require('../services/deleteAuthorizationService');
 
 function isAdmin(user) { return user && (user.role === 'admin' || user.role === 'hr'); }
 
@@ -160,6 +161,7 @@ exports.deleteDocument = async (req, res) => {
     if (!doc) return res.status(404).json({ error: 'Not found' });
     if (!isAdmin(req.user) && req.user.employeeId !== doc.employeeId) return res.status(403).json({ error: 'Forbidden' });
     await doc.destroy();
+    await consumeDeleteApproval(req, 'document', id);
     await AuditLog.create({ entity: 'Document', entityId: id, action: 'deleted', actorId: req.user.id, payload: {} });
     res.json({ success: true });
   } catch (err) {

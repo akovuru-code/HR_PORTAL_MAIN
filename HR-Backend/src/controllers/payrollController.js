@@ -1,5 +1,6 @@
 const Payroll = require('../models/payroll');
 const Employee = require('../models/employee');
+const { consumeDeleteApproval, consumeEditApproval } = require('../services/deleteAuthorizationService');
 const path = require('path');
 const fs = require('fs');
 
@@ -122,6 +123,7 @@ exports.updatePayroll = async (req, res) => {
       payChequeUrl: req.body.payChequeUrl ?? payroll.payChequeUrl,
       updatedBy: req.body.updatedBy ?? payroll.updatedBy,
     });
+    await consumeEditApproval(req, 'payroll', req.params.id);
 
     const employee = await Employee.findByPk(payroll.employee_id, {
       attributes: ['employee_id', 'name', 'firstName', 'lastName', 'email'],
@@ -140,6 +142,7 @@ exports.deletePayroll = async (req, res) => {
     if (!payroll) return res.status(404).json({ error: 'Payroll not found' });
 
     await payroll.destroy();
+    await consumeDeleteApproval(req, 'payroll', req.params.id);
     res.json({ success: true });
   } catch (err) {
     console.error('[deletePayroll]', err.message);

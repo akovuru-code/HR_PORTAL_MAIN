@@ -6,6 +6,7 @@ const {
   requireEmployeeSelfOrPermission,
   requireEmployeeOrPermission,
 } = require('../middleware/authorization');
+const { requireApprovedDelete } = require('../services/deleteAuthorizationService');
 
 router.use(authenticateToken);
 
@@ -14,6 +15,6 @@ router.get('/', ctrl.getDocuments);
 router.post('/register', requireEmployeeOrPermission('employee:update'), ctrl.registerDocument);
 router.post('/', requireEmployeeOrPermission('employee:update'), ctrl.createDocument);
 router.delete('/type/:documentType', requireEmployeeOrPermission('employee:update'), ctrl.deleteByType);
-router.delete('/:docId', requireEmployeeOrPermission('employee:update'), ctrl.deleteDocument);
+router.delete('/:docId', requireEmployeeOrPermission('employee:update'), requireApprovedDelete('document', req => req.params.docId), ctrl.deleteDocument);
 
 module.exports = router;

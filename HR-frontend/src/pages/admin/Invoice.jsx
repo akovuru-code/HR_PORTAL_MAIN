@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from "react"
 import AdminTypography from "../../components/admin/AdminTypography"
 import { useAdminView } from "../../contexts/AdminViewContext"
 import { MdDelete } from "react-icons/md";
+import { confirmOrRequestDelete } from '../../utils/adminDeleteRequest';
 
 // Get logged-in user from localStorage
 const getLoggedInUser = () => {
@@ -481,13 +482,7 @@ export default function AdminInvoices() {
     // Delete invoice with confirmation
 
     async function handleDelete(invoice) {
-        if (
-            !window.confirm(
-                `Are you sure you want to delete invoice "${invoice.invoiceNumber}"?`
-            )
-        ) {
-            return
-        }
+        if (!await confirmOrRequestDelete({ resourceType: 'invoice', resourceId: invoice.id, resourceLabel: `invoice ${invoice.invoiceNumber}` })) return
 
         try {
             const res = await fetch(

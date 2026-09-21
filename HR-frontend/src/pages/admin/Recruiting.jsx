@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
+import { confirmOrRequestDelete, requestOrUseAdminAction } from '../../utils/adminDeleteRequest';
+import BenchCandidatesSection from '../../components/admin/BenchCandidatesSection';
+import JobOpeningsSection from '../../components/admin/JobOpeningsSection';
 
 // --- Helpers ---
 const authHeaders = () => {
@@ -183,7 +186,9 @@ function RecruiterModal({ open, onClose, onSave, initialData, isEdit, }) {
 // ============================================================
 // Main AdminRecruiters Component
 // ============================================================
-export default function AdminRecruiters() {
+// Retained for future restoration.  The former recruiter-management UI and
+// its API integration are intentionally not deleted by this reorganization.
+function LegacyRecruiterManagement() {
     const [recruiters, setRecruiters] = useState([]);
     const [search, setSearch] = useState("");
     const [filterOpen, setFilterOpen] = useState(false);
@@ -280,7 +285,8 @@ export default function AdminRecruiters() {
     }
 
 
-    function handleEdit(recruiter) {
+    async function handleEdit(recruiter) {
+        if (!await requestOrUseAdminAction({ actionType: 'edit', resourceType: 'recruiting', resourceId: recruiter.id, resourceLabel: `recruiter ${recruiter.name}` })) return;
         if (
             window.confirm(
                 `Edit recruiter "${recruiter.name}"?`
@@ -292,7 +298,7 @@ export default function AdminRecruiters() {
     }
 
     async function handleDelete(recruiter) {
-        if (!window.confirm(`Are you sure you want to delete recruiter "${recruiter.name}"?`)) return;
+        if (!await confirmOrRequestDelete({ resourceType: 'recruiting', resourceId: recruiter.id, resourceLabel: `recruiter ${recruiter.name}` })) return;
         try {
             const res = await fetch(`/api/recruiting/${recruiter.id}`, {
                 method: "DELETE",
@@ -474,5 +480,16 @@ export default function AdminRecruiters() {
                 isEdit={!!editRecruiter}
             />
         </div>
+    );
+}
+
+export default function Recruiting() {
+    return (
+        <main className="max-w-7xl mx-auto px-4 py-8">
+            <AdminTypography.h1 className="mb-8">Bench & Opportunities</AdminTypography.h1>
+            <BenchCandidatesSection />
+            <div className="my-10 border-t border-gray-200" />
+            <JobOpeningsSection />
+        </main>
     );
 }

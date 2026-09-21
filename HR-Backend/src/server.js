@@ -6,10 +6,12 @@ const port = process.env.PORT || 5001;
 // Wait for all model syncs to complete before accepting requests
 const { takeSnapshot } = require('./cron/snapshotJob');
 const { seedCompanyData } = require('./controllers/companyController');
+const { seedPerformanceReviewTemplates } = require('./services/performanceReviewTemplateSeed');
 
 sequelize.authenticate()
   .then(() => sequelize.sync({ alter: true }))
   .then(() => seedCompanyData())
+  .then(() => seedPerformanceReviewTemplates())
   .then(() => {
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);

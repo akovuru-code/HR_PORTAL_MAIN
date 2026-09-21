@@ -72,6 +72,7 @@ export default function EmployeeDetails() {
   }
 
   const initials = employee?.name ? employee.name.split(" ").map(p => p[0]).join("").slice(0, 2).toUpperCase() : "?";
+  const projectStatus = typeof employee?.status === "string" ? employee.status.trim() : "";
 
   return (
     <AdminViewContext.Provider value={{ targetEmployeeId: parseInt(id, 10) }}>
@@ -104,7 +105,7 @@ export default function EmployeeDetails() {
               <div><AdminTypography.small className="font-semibold">Title</AdminTypography.small>: {employee?.title}</div>
               <div><AdminTypography.small className="font-semibold">Client Name</AdminTypography.small>: {employee?.client}</div>
               <div><AdminTypography.small className="font-semibold">Work Location</AdminTypography.small>: {employee?.location}</div>
-              <div><AdminTypography.small className="font-semibold">Status</AdminTypography.small>: <span className="inline-block px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">{employee?.status}</span></div>
+              <div><AdminTypography.small className="font-semibold">Status</AdminTypography.small>: {projectStatus ? <span className="inline-block px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">{projectStatus}</span> : "—"}</div>
             </div>
           )}
         </div>

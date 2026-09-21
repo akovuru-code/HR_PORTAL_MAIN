@@ -8,6 +8,7 @@ import EmployeeProfile from "./Profile";
 import EmployeeTimesheet from "./Timesheet";
 import EmployeeHelp from "./Help";
 import EmployeeSettings from "./Settings";
+import PerformanceReport from "./PerformanceReport";
 import React from "react";
 import EmpOnboard from "../onboarding/TabbedLayout";
 
@@ -73,6 +74,15 @@ export default [
     element={
       <ProtectedRoute allowedRoles={["employee"]}>
         <EmployeeTimesheet />
+      </ProtectedRoute>
+    }
+  />,
+  <Route
+    key="performance-report"
+    path="performance-report"
+    element={
+      <ProtectedRoute allowedRoles={["employee"]}>
+        <PerformanceReport />
       </ProtectedRoute>
     }
   />,

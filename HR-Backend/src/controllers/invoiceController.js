@@ -11,20 +11,48 @@ const VendorEmployeeRate = require('../models/vendorEmployeeRate');
 const { generateInvoicePdf } = require('../services/invoicePdfService');
 const { getInvoiceTemplate } = require('../config/invoiceTemplates');
 const { normalizeCurrency } = require('../config/currencies');
+const { automaticInvoiceDescription, isAutomaticInvoiceDescription } = require('../utils/invoicePeriod');
+const { getInvoiceOverdueState, overdueLabel } = require('../utils/invoiceOverdue');
+const { consumeEditApproval } = require('../services/deleteAuthorizationService');
 
 const TERMS = { 'Net 15': 15, 'Net 30': 30, 'Net 45': 45, 'Net 60': 60, Custom: null };
 const STATUSES = new Set(['Draft', 'Generated', 'Sent', 'Paid', 'Overdue', 'Cancelled']);
+const BILLING_FREQUENCIES = new Set(['weekly', 'bi-weekly', 'monthly']);
 const emailPattern = /^\S+@\S+\.\S+$/;
 
 function dateOnly(value) { return value ? String(value).slice(0, 10) : null; }
 function fullName(employee) { return [employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || employee?.name || employee?.email || ''; }
+function normalizeBillingFrequency(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const frequency = String(value).trim().toLowerCase();
+  if (!BILLING_FREQUENCIES.has(frequency)) throw new Error('Invalid billing frequency');
+  return frequency;
+}
+function billingFrequencyFor(invoice) {
+  const value = invoice.toJSON ? invoice.toJSON() : invoice;
+  if (value.billingFrequency) return value.billingFrequency;
+  if (value.biWeekly === 'Yes') return 'bi-weekly';
+  if (value.monthly === 'Yes') return 'monthly';
+  return null;
+}
 function paymentJson(payment) {
   const value = payment.toJSON ? payment.toJSON() : payment;
   return { id: value.id, date: value.date, referenceNumber: value.referenceNumber, paymentMethod: value.paymentMethod, amount: Number(value.amount || 0) };
 }
 function invoiceJson(invoice, items = [], payments = []) {
   const paymentsApplied = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  return { ...invoice.toJSON(), items: items.map(item => item.toJSON ? item.toJSON() : item), paymentsApplied: Number(paymentsApplied.toFixed(2)), payments: payments.map(paymentJson), pdfUrl: invoice.pdfPath ? `/api/invoices/records/${invoice.id}/pdf` : (invoice.url || null) };
+  const value = invoice.toJSON();
+  const overdue = getInvoiceOverdueState(value);
+  return {
+    ...value,
+    billingFrequency: billingFrequencyFor(invoice),
+    items: items.map(item => item.toJSON ? item.toJSON() : item),
+    paymentsApplied: Number(paymentsApplied.toFixed(2)),
+    payments: payments.map(paymentJson),
+    pdfUrl: invoice.pdfPath ? `/api/invoices/records/${invoice.id}/pdf` : (invoice.url || null),
+    ...overdue,
+    displayStatus: overdue.isOverdue ? overdueLabel(overdue.daysOverdue) : value.status,
+  };
 }
 function invoiceUpdateValues(body, subtotal, existing, company) {
   return {
@@ -33,8 +61,9 @@ function invoiceUpdateValues(body, subtotal, existing, company) {
     project_id: body.projectId || null, projectName: body.projectName || null, client_id: body.clientId || null, clientName: body.clientName || null,
     vendor_id: body.vendorId || null, vendorName: body.vendorName || null, prime_vendor_id: body.primeVendorId || null, primeVendorName: body.primeVendorName || null,
     billToType: body.billToType, billToId: body.billToId, billToCompany: body.billToCompany, billingContactName: body.billingContactName || null,
-    billingEmail: body.billingEmail || null, billingAddress: body.billingAddress || null, invoiceNumber: body.invoiceNumber,
+    billingEmail: body.billingEmail || null, billingAddress: body.billingAddress || null, invoiceNumber: body.invoiceNumber.trim(),
     invoiceDate: dateOnly(body.invoiceDate), billingFromDate: dateOnly(body.invoiceDate), billingToDate: dateOnly(body.dueDate), poNumber: body.poNumber || null,
+    billingFrequency: normalizeBillingFrequency(body.billingFrequency),
     paymentTerms: body.paymentTerms, customPaymentDays: body.paymentTerms === 'Custom' ? Number(body.customPaymentDays) : null, dueDate: dateOnly(body.dueDate), currency: normalizeCurrency(body.currency), subtotal, total: subtotal, balanceDue: subtotal,
     status: body.status || existing.status, updatedBy: body.updatedBy || existing.updatedBy,
   };
@@ -52,12 +81,14 @@ function calculateItems(items) {
 function validate(body, items) {
   const required = ['companyId', 'employeeId', 'billToType', 'billToId', 'invoiceNumber', 'invoiceDate', 'paymentTerms', 'dueDate'];
   for (const field of required) if (!body[field]) throw new Error(`${field} is required`);
+  if (!String(body.invoiceNumber || '').trim()) throw new Error('Invoice Number is required');
   if (!['Client', 'Vendor', 'Prime Vendor'].includes(body.billToType)) throw new Error('Invalid Bill To type');
   if (!(body.paymentTerms in TERMS)) throw new Error('Invalid payment terms');
   if (body.paymentTerms === 'Custom' && (!Number.isInteger(Number(body.customPaymentDays)) || Number(body.customPaymentDays) <= 0)) throw new Error('Custom Net Days must be a positive whole number');
   if (body.dueDate < body.invoiceDate) throw new Error('Due date cannot be before Invoice Date');
   if (body.billingEmail && !emailPattern.test(body.billingEmail)) throw new Error('Billing email is invalid');
   if (body.status && !STATUSES.has(body.status)) throw new Error('Invalid invoice status');
+  normalizeBillingFrequency(body.billingFrequency);
   return calculateItems(items);
 }
 async function getItems(invoiceId) { return InvoiceItem.findAll({ where: { invoice_id: invoiceId }, order: [['id', 'ASC']] }); }
@@ -93,7 +124,8 @@ exports.list = async (req, res) => {
     if (req.query.employeeId && !Number.isInteger(employeeId)) return res.status(400).json({ error: 'employeeId must be a valid integer' });
     const invoices = await Invoice.findAll({ where: employeeId ? { employee_id: employeeId } : undefined, order: [['createdAt', 'DESC']] });
     const result = await Promise.all(invoices.map(async invoice => invoiceJson(invoice, await getItems(invoice.id), await getPayments(invoice.id))));
-    res.json({ invoices: result });
+    const filtered = String(req.query.status || '').trim().toLowerCase() === 'overdue' ? result.filter(invoice => invoice.isOverdue) : result;
+    res.json({ invoices: filtered });
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
@@ -158,8 +190,9 @@ exports.create = async (req, res) => {
       prime_vendor_id: req.body.primeVendorId || null, primeVendorName: req.body.primeVendorName || null,
       billToType: req.body.billToType, billToId: req.body.billToId, billToCompany: req.body.billToCompany,
       billingContactName: req.body.billingContactName || null, billingEmail: req.body.billingEmail || null, billingAddress: req.body.billingAddress || null,
-      invoiceNumber: req.body.invoiceNumber, invoiceDate: dateOnly(req.body.invoiceDate), billingFromDate: dateOnly(req.body.invoiceDate), billingToDate: dateOnly(req.body.dueDate),
+      invoiceNumber: req.body.invoiceNumber.trim(), invoiceDate: dateOnly(req.body.invoiceDate), billingFromDate: dateOnly(req.body.invoiceDate), billingToDate: dateOnly(req.body.dueDate),
       poNumber: req.body.poNumber || null, paymentTerms: req.body.paymentTerms, customPaymentDays: req.body.paymentTerms === 'Custom' ? Number(req.body.customPaymentDays) : null, dueDate: dateOnly(req.body.dueDate), currency: normalizeCurrency(req.body.currency),
+      billingFrequency: normalizeBillingFrequency(req.body.billingFrequency),
       subtotal, total: subtotal, balanceDue: subtotal, status: req.body.status || 'Draft', createdBy: req.body.createdBy || '', updatedBy: '',
     });
     const savedItems = await InvoiceItem.bulkCreate(items.map(item => ({ ...item, invoice_id: invoice.id })), { returning: true });
@@ -188,6 +221,7 @@ exports.update = async (req, res) => {
     await InvoiceItem.destroy({ where: { invoice_id: result.invoice.id } });
     const savedItems = await InvoiceItem.bulkCreate(items.map(item => ({ ...item, invoice_id: result.invoice.id })), { returning: true });
     await result.invoice.reload();
+    await consumeEditApproval(req, 'invoice', req.params.id);
     res.json({ invoice: invoiceJson(result.invoice, savedItems, result.payments) });
   } catch (err) { res.status(400).json({ error: err.message }); }
 };
@@ -195,9 +229,19 @@ exports.update = async (req, res) => {
 exports.generatePdf = async (req, res) => {
   try {
     const result = await getInvoice(req.params.id); if (!result) return res.status(404).json({ error: 'Invoice not found' });
+    if (!String(result.invoice.invoiceNumber || '').trim()) return res.status(400).json({ error: 'Invoice Number is required before generating a PDF.' });
+    const generatedAt = new Date();
+    const automaticDescription = automaticInvoiceDescription(result.invoice.employeeName, result.invoice.billingFrequency, generatedAt);
+    const automaticItems = automaticDescription
+      ? result.items.filter(item => !item.description?.trim() || isAutomaticInvoiceDescription(item.description, result.invoice.employeeName))
+      : [];
+    if (automaticItems.length) {
+      await Promise.all(automaticItems.map(item => item.update({ description: automaticDescription })));
+      result.items = await getItems(result.invoice.id);
+    }
     const company = await Company.findByPk(result.invoice.company_id);
-    const pdf = await generateInvoicePdf({ invoice: result.invoice, items: result.items, company });
-    await result.invoice.update({ pdfPath: pdf.outputPath, pdfVersion: pdf.version, filename: pdf.filename, originalName: pdf.downloadName, templateName: pdf.templateName, url: `/api/invoices/records/${result.invoice.id}/pdf`, status: result.invoice.status === 'Draft' ? 'Generated' : result.invoice.status, generatedDate: new Date().toISOString().slice(0, 10) });
+    const pdf = await generateInvoicePdf({ invoice: result.invoice, items: result.items, company, generatedAt });
+    await result.invoice.update({ pdfPath: pdf.outputPath, pdfVersion: pdf.version, filename: pdf.filename, originalName: pdf.downloadName, templateName: pdf.templateName, url: `/api/invoices/records/${result.invoice.id}/pdf`, status: result.invoice.status === 'Draft' ? 'Generated' : result.invoice.status, generatedDate: generatedAt.toISOString().slice(0, 10) });
     await result.invoice.reload();
     res.json({ invoice: invoiceJson(result.invoice, result.items, result.payments) });
   } catch (err) { res.status(500).json({ error: err.message }); }
