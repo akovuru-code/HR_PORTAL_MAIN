@@ -494,8 +494,10 @@ exports.submitOnboarding = async (req, res) => {
             }
         }
 
-        // Delete all drafts for this employee
-        await OnboardingDraft.destroy({ where: { employeeId: id }, transaction: t });
+        // Keep per-tab drafts after submission.  The employee portal uses them
+        // to faithfully hydrate submitted onboarding forms after a refresh.
+        // They are upserted on later edits, so retaining them does not create
+        // duplicate records or change the submitted/approval workflow.
         const editWhere = { employeeId: id, status: 'approved' };
         if (sectionKey) editWhere.sectionKey = sectionKey;
         await EditRequest.update({ status: 'used' }, { where: editWhere, transaction: t });
@@ -503,10 +505,19 @@ exports.submitOnboarding = async (req, res) => {
         // Mark the submitted tab and check if all required tabs are done
         const REQUIRED_TABS = ['personal', 'onboardDocs', 'profileWork', 'education', 'skills', 'documents'];
         const submittedTab = req.body?.tab;
+        // Personal Info now owns the embedded Onboard Docs workflow. Preserve
+        // the legacy onboardDocs completion flag for existing completion and
+        // reporting logic, while keeping a single employee-facing submission.
+        const submittedTabsForRequest = submittedTab === 'personal' && req.body?.includeOnboardDocs === true
+            ? ['personal', 'onboardDocs']
+            : submittedTab ? [submittedTab] : [];
         const emp = await Employee.findByPk(id, { transaction: t });
         const currentTabs = emp?.submittedTabs || {};
-        const updatedTabs = submittedTab
-            ? { ...currentTabs, [submittedTab]: { submitted: true, submittedBy: isAdmin(req.user) ? 'admin' : 'employee' } }
+        const updatedTabs = submittedTabsForRequest.length
+            ? submittedTabsForRequest.reduce((tabs, tab) => ({
+                ...tabs,
+                [tab]: { submitted: true, submittedBy: isAdmin(req.user) ? 'admin' : 'employee' },
+            }), { ...currentTabs })
             : currentTabs;
         const allDone = REQUIRED_TABS.every(tab => isSubmittedTab(updatedTabs[tab]));
         await Employee.update(
@@ -517,7 +528,7 @@ exports.submitOnboarding = async (req, res) => {
             { where: { employee_id: id }, transaction: t }
         );
 
-        await AuditLog.create({ entity: 'Employee', entityId: id, action: 'submitted_onboarding', actorId: req.user.id, payload: { tab: submittedTab } }, { transaction: t });
+        await AuditLog.create({ entity: 'Employee', entityId: id, action: 'submitted_onboarding', actorId: req.user.id, payload: { tab: submittedTab, includedTabs: submittedTabsForRequest } }, { transaction: t });
         await t.commit();
         res.json({ success: true });
     } catch (err) {

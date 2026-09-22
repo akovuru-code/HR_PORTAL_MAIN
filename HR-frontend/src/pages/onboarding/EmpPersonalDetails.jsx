@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FaCheckDouble, FaHome } from "react-icons/fa";
 import { FaUpload } from "react-icons/fa";
 import { useAuth } from "../../hooks/useAuth";
@@ -131,6 +131,7 @@ export default function ProfileInfo() {
   } = useOnboardingPermissions(pageKey, 'personal');
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [validationError, setValidationError] = useState("");
+  const onboardDocsRef = useRef(null);
 
   // Sync personal info file fields to Document table (register present, delete absent)
   const syncFileDocs = async () => {
@@ -284,6 +285,10 @@ export default function ProfileInfo() {
       const body = { tab: 'personal', payload, spouse: spousePayload, kids: kidsPayload, documents: docsPayload };
       // Pass isDraft = true so frontend helper hits the draft endpoint
       await saveOnboardingFull(employeeId, body, true);
+
+      // Onboard Docs is part of Personal Info now. Keep its existing draft
+      // storage, but save it through this one parent workflow.
+      await onboardDocsRef.current?.saveDraft();
 
       await syncFileDocs();
 
@@ -512,9 +517,18 @@ export default function ProfileInfo() {
         if (!employeeId) return;
         const resp = await getOnboarding(employeeId);
         const emp = resp?.data?.employee;
-        // Load personal-tab-specific draft
-        const personalDraft = await getDraft(employeeId, 'personal');
-        const draft = personalDraft;
+
+        // The onboarding response already includes the personal draft when it
+        // exists.  Treat the dedicated draft request as an optional refresh,
+        // not as a prerequisite for hydrating canonical Employee data.  This
+        // keeps existing submitted employees (whose old drafts were deleted)
+        // visible even if the draft endpoint is unavailable.
+        let draft = resp?.data?.draft || null;
+        try {
+          draft = (await getDraft(employeeId, 'personal')) || draft;
+        } catch (draftError) {
+          console.warn('Failed to load personal onboarding draft; using persisted employee data', draftError?.message || draftError);
+        }
         const isSubmitted = emp?.onboardingStatus === 'submitted' || emp?.onboardingStatus === 'approved';
         // Drafts own onboarding fields, but Employee.phone is the shared source of truth.
         const source = draft?.data ? draft.data : {};
@@ -1938,7 +1952,9 @@ export default function ProfileInfo() {
         <section className="mt-4">
           <EmpTypography.h2 className="mb-3 font-bold">Onboard Docs</EmpTypography.h2>
           <OnboardDocs
+            ref={onboardDocsRef}
             embedded
+            readOnly={onboardingSubmitted && !canEdit}
             visaType={visaType}
             i9File={i9File}
             setI9File={setI9File}
@@ -2032,7 +2048,10 @@ export default function ProfileInfo() {
           <EmpTypography.button variant="primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</EmpTypography.button>
         )}
         {(!onboardingSubmitted || canEdit) && (
-          <EmpTypography.button variant="primary" onClick={() => setShowConfirmModal(true)}>Submit</EmpTypography.button>
+          <EmpTypography.button variant="primary" onClick={() => {
+            if (!onboardDocsRef.current?.validateForSubmit()) return;
+            setShowConfirmModal(true);
+          }}>Submit</EmpTypography.button>
         )}
         {onboardingSubmitted && !canEdit && !permissionGranted && (
           <EmpTypography.button variant="primary" onClick={handleModify}>Request Modify</EmpTypography.button>
@@ -2136,8 +2155,9 @@ export default function ProfileInfo() {
                     const body = { tab: 'personal', payload, spouse: spousePayload, kids: kidsPayload, documents: docsPayload };
                     // Save to draft first (merges with other tabs' data)
                     await saveOnboardingFull(employeeId, body, true);
+                    await onboardDocsRef.current?.saveDraft();
                     await syncFileDocs();
-                    await submitOnboarding(employeeId, 'personal');
+                    await submitOnboarding(employeeId, 'personal', { includeOnboardDocs: true });
                     // Update local UI state
                     handleSubmit();
                     alert('Submitted successfully');

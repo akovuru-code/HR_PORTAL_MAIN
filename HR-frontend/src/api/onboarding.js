@@ -27,8 +27,8 @@ export const saveOnboarding = (employeeId, tab, payload) =>
 export const saveOnboardingFull = (employeeId, body, isDraft = false) =>
     api.post(isDraft ? `/onboarding/${employeeId}/save-draft` : `/onboarding/${employeeId}`, body);
 
-export const submitOnboarding = (employeeId, tab) =>
-    api.post(`/onboarding/${employeeId}/submit`, tab ? { tab } : {});
+export const submitOnboarding = (employeeId, tab, options = {}) =>
+    api.post(`/onboarding/${employeeId}/submit`, tab ? { tab, ...options } : options);
 
 export const requestEditAccess = (employeeId, reason) =>
     api.post(`/onboarding/${employeeId}/request-edit`, { reason });

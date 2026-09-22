@@ -144,7 +144,9 @@ const submitOnboardingValidators = [
                 }
             }
 
-            if (tab === 'onboardDocs') {
+            // Onboard Docs is embedded in Personal Info. A unified Personal
+            // submission validates the same persisted Onboard Docs draft.
+            if (tab === 'onboardDocs' || (tab === 'personal' && req.body?.includeOnboardDocs === true)) {
                 const onboardDocsDraft = await OnboardingDraft.findOne({ where: { employeeId: id, tab: 'onboardDocs' } });
                 const bank = onboardDocsDraft?.data?.payload?.bank || {};
                 if (!bank.name) missing.push({ field: 'bank.name', tab: 'onboardDocs', msg: 'Bank Name is required' });

@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { forwardRef, useState, useEffect, useImperativeHandle } from "react";
 import EmpTypography from "../../components/emp/EmpTypography";
 import { useMemo } from "react";
 import axios from "axios";
@@ -42,8 +42,9 @@ function VisaDocumentsCard({ visaType, employeeId, i9File, setI9File, w4File, se
   </section>;
 }
 
-export default function ProfileOnboardDocs({
+const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
   embedded = false,
+  readOnly = false,
   visaType,
   i9File,
   setI9File,
@@ -57,7 +58,7 @@ export default function ProfileOnboardDocs({
   spouseVisaType,
   kids = [],
   setKidDocument,
-}) {
+}, ref) {
   EmpTypography._log && EmpTypography._log();
   const pageKey = 'canEdit_onboarddocs';
   const {
@@ -82,7 +83,11 @@ export default function ProfileOnboardDocs({
   const [uploadingFileId, setUploadingFileId] = useState(null);
 
   const employeeId = targetEmployeeId || user?.employeeId || user?.id;
-  const isReadOnly = onboardingSubmitted && !canEdit;
+  // When embedded, Personal Info owns the single submit/request-modify
+  // workflow. Its readOnly value must therefore govern every child control
+  // (Bank, Insurance, and Onboard Docs) instead of the legacy onboardDocs
+  // permission state. The standalone route retains its existing behavior.
+  const isReadOnly = embedded ? readOnly : (readOnly || (onboardingSubmitted && !canEdit));
   const userName = user?.name || user?.email || "Unknown";
 
   const [files, setFiles] = useState([]);
@@ -254,14 +259,31 @@ export default function ProfileOnboardDocs({
     }
   };
 
+  const validateForSubmit = () => {
+    if (!bank.name || !bank.acc || !bank.routing || !bank.type) {
+      setValidationError("Bank Name, Account Number, Routing Number, and Account Type are required before submitting.");
+      return false;
+    }
+    setValidationError("");
+    return true;
+  };
+
+  const saveDraft = async () => {
+    if (!employeeId) throw new Error('Missing employeeId in session');
+    await saveOnboardingFull(employeeId, buildPayload(), true);
+    await syncOnboardDocs(files);
+  };
+
+  // The embedded component exposes its draft work to Personal Info, which owns
+  // the single visible Save / Submit / Request Modify workflow.
+  useImperativeHandle(ref, () => ({ saveDraft, validateForSubmit }), [bank, insuranceRows, files, employeeId, hasSpouse, spouseI9File, spouseW4File, kids]);
+
   function handleSave() {
     setValidationError("");
     (async () => {
       setSaving(true);
       try {
-        if (!employeeId) throw new Error('Missing employeeId in session');
-        await saveOnboardingFull(employeeId, buildPayload(), true);
-        await syncOnboardDocs(files);
+        await saveDraft();
         alert('Draft saved');
       } catch (err) {
         alert('Save failed: ' + (err?.response?.data?.error || err.message || 'unknown'));
@@ -569,27 +591,22 @@ export default function ProfileOnboardDocs({
       {validationError && (
         <EmpTypography.small className="text-red-600 mb-2">{validationError}</EmpTypography.small>
       )}
-      <div className="flex justify-end mt-4 gap-2">
+      {!embedded && <div className="flex justify-end mt-4 gap-2">
         {(!onboardingSubmitted || canEdit) && (
           <EmpTypography.button variant="primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</EmpTypography.button>
         )}
         {(!onboardingSubmitted || canEdit) && (
           <EmpTypography.button variant="primary" onClick={() => {
-            if (!bank.name || !bank.acc) {
-              setValidationError("Bank Name and Account Number are required before submitting.");
-              return;
-            }
-            setValidationError("");
-            setShowConfirmModal(true);
+            if (validateForSubmit()) setShowConfirmModal(true);
           }}>Submit</EmpTypography.button>
         )}
         {(onboardingSubmitted && !canEdit && !permissionGranted) && (
           <EmpTypography.button variant="primary" onClick={handleModify}>Request Modify</EmpTypography.button>
         )}
-      </div>
+      </div>}
 
       {/* Confirmation Modal for Submit */}
-      {showConfirmModal && (
+      {!embedded && showConfirmModal && (
         <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-xs">
             <EmpTypography.h3 className="mb-2">Confirm Submission</EmpTypography.h3>
@@ -599,9 +616,7 @@ export default function ProfileOnboardDocs({
                 setShowConfirmModal(false);
                 setSaving(true);
                 try {
-                  if (!employeeId) throw new Error('Missing employeeId');
-                  await saveOnboardingFull(employeeId, buildPayload(), true);
-                  await syncOnboardDocs(files);
+                  await saveDraft();
                   await submitOnboarding(employeeId, 'onboardDocs');
                   handleSubmit();
                   alert('Submitted successfully');
@@ -618,7 +633,7 @@ export default function ProfileOnboardDocs({
       )}
 
       {/* Reason Modal for Modify */}
-      {showReasonModal && (
+      {!embedded && showReasonModal && (
         <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-xs">
             <EmpTypography.h3 className="mb-2">Request Admin Permission</EmpTypography.h3>
@@ -638,7 +653,7 @@ export default function ProfileOnboardDocs({
           </div>
         </div>
       )}
-      {showPermissionModal && (
+      {!embedded && showPermissionModal && (
         <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-xs">
             <EmpTypography.h3 className="mb-2">Request Admin Permission</EmpTypography.h3>
@@ -662,4 +677,6 @@ export default function ProfileOnboardDocs({
       )}
     </div >
   );
-}
+});
+
+export default ProfileOnboardDocs;
