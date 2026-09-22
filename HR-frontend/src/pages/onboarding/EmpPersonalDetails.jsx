@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { FaCheckDouble, FaHome } from "react-icons/fa";
 import { FaUpload } from "react-icons/fa";
 import { useAuth } from "../../hooks/useAuth";
@@ -43,6 +43,104 @@ function CustomFileUpload() {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// Format YYYY-MM-DD or ISO date to "DD MMMM YYYY" (e.g. "01 October 2026")
+function formatDisplayDate(dateStr) {
+  if (!dateStr) return "";
+  const clean = String(dateStr).substring(0, 10);
+  const parts = clean.split("-");
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    if (year && month && day && year.length === 4) {
+      const monthNames = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+      ];
+      const mIdx = parseInt(month, 10) - 1;
+      if (mIdx >= 0 && mIdx < 12) {
+        const dayFormatted = String(parseInt(day, 10)).padStart(2, "0");
+        return `${dayFormatted} ${monthNames[mIdx]} ${year}`;
+      }
+    }
+  }
+  return dateStr;
+}
+
+function FormattedDateInput({
+  value,
+  onChange,
+  disabled = false,
+  min = "1900-01-01",
+  max = "9999-12-31",
+  className = "",
+  ariaLabel,
+}) {
+  const dateInputRef = useRef(null);
+  const displayVal = formatDisplayDate(value);
+
+  const handleClick = () => {
+    if (disabled) return;
+    if (dateInputRef.current) {
+      if (typeof dateInputRef.current.showPicker === "function") {
+        try {
+          dateInputRef.current.showPicker();
+        } catch (_) {}
+      }
+    }
+  };
+
+  return (
+    <div className="relative w-full">
+      <input
+        type="text"
+        readOnly
+        tabIndex={-1}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        value={displayVal}
+        placeholder="DD MMMM YYYY"
+        className={`w-full border rounded px-3 py-2 bg-white pr-10 ${
+          disabled ? "bg-gray-100 cursor-not-allowed text-gray-500" : "cursor-pointer"
+        } ${className}`}
+      />
+      <div
+        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="h-5 w-5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+          />
+        </svg>
+      </div>
+      <input
+        ref={dateInputRef}
+        type="date"
+        disabled={disabled}
+        value={value ? String(value).substring(0, 10) : ""}
+        min={min}
+        max={max}
+        onClick={handleClick}
+        onChange={(e) => {
+          const val = e.target.value;
+          const year = val.split("-")[0];
+          if (year.length <= 4) {
+            onChange(val);
+          }
+        }}
+        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full disabled:cursor-not-allowed"
+      />
     </div>
   );
 }
@@ -792,29 +890,11 @@ export default function ProfileInfo() {
             </div>
             <div>
               <EmpTypography.label>Date of Birth<span className="text-red-500">*</span></EmpTypography.label>
-              <input
-                type="date"
+              <FormattedDateInput
                 value={dob}
-                min="1900-01-01"
-                max="9999-12-31"
-                onInput={(e) => {
-                  const value = e.target.value;
-                  const parts = value.split("-");
-
-                  if (parts[0] && parts[0].length > 4) {
-                    parts[0] = parts[0].slice(0, 4);
-                    e.target.value = parts.join("-");
-                  }
-                }}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  const year = value.split("-")[0];
-
-                  if (year.length <= 4) {
-                    setDob(value);
-                  }
-                }}
-                className="w-full border rounded px-3 py-2"
+                onChange={setDob}
+                disabled={onboardingSubmitted && !canEdit}
+                ariaLabel="date-of-birth"
               />
             </div>
             <div className="md:col-span-3">
@@ -958,18 +1038,11 @@ export default function ProfileInfo() {
               <input className="w-full border rounded px-3 py-2" value={passportNumber} onChange={e => setPassportNumber(e.target.value)} />
 
               <EmpTypography.label>Passport Expiry Date<span className="text-red-500">*</span></EmpTypography.label>
-              <input type="date" value={passportExpiry} min="1900-01-01" max="9999-12-31" onInput={(e) => {
-                const value = e.target.value; const parts = value.split("-");
-                if (parts[0] && parts[0].length > 4) {
-                  parts[0] = parts[0].slice(0, 4);
-                  e.target.value = parts.join("-");
-                }
-              }}
-                onChange={(e) => {
-                  const value = e.target.value; const year = value.split("-")[0];
-                  if (year.length <= 4) { setPassportExpiry(value); }
-                }}
-                className="w-full border rounded px-3 py-2"
+              <FormattedDateInput
+                value={passportExpiry}
+                onChange={setPassportExpiry}
+                disabled={onboardingSubmitted && !canEdit}
+                ariaLabel="passport-expiry-date"
               />
               <FileUploadField label="Document Upload:" employeeId={user?.employeeId || user?.id} category="passport" documentName="Passport" value={passportFile} onChange={setPassportFile} disabled={onboardingSubmitted && !canEdit} />
             </div>
@@ -1101,31 +1174,12 @@ export default function ProfileInfo() {
                     Visa Expiry date<span className="text-red-500">*</span>
                   </EmpTypography.label>
 
-                  <input
-                    type="date"
+                  <FormattedDateInput
                     value={visaExpiry}
-                    min="1900-01-01"
-                    max="9999-12-31"
-                    onInput={(e) => {
-                      const value = e.target.value;
-                      const parts = value.split("-");
-
-                      if (parts[0] && parts[0].length > 4) {
-                        parts[0] = parts[0].slice(0, 4);
-                        e.target.value = parts.join("-");
-                      }
-                    }}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      const year = value.split("-")[0];
-
-                      if (year.length <= 4) {
-                        setVisaExpiry(value);
-                      }
-                    }}
-                    className="w-full border rounded px-3 py-2"
+                    onChange={setVisaExpiry}
+                    disabled={onboardingSubmitted && !canEdit}
+                    ariaLabel="visa-expiry-date"
                   />
-
                 </>
               )}
 
@@ -1182,29 +1236,11 @@ export default function ProfileInfo() {
                   <EmpTypography.label>DL Issue State</EmpTypography.label>
                   <input className="w-full border rounded px-3 py-2" value={dlState} onChange={e => setDlState(e.target.value)} />
                   <EmpTypography.label>DL Expiry date<span className="text-red-500">*</span></EmpTypography.label>
-                  <input
-                    type="date"
+                  <FormattedDateInput
                     value={dlExpiry}
-                    min="1900-01-01"
-                    max="9999-12-31"
-                    onInput={(e) => {
-                      const value = e.target.value;
-                      const parts = value.split("-");
-
-                      if (parts[0] && parts[0].length > 4) {
-                        parts[0] = parts[0].slice(0, 4);
-                        e.target.value = parts.join("-");
-                      }
-                    }}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      const year = value.split("-")[0];
-
-                      if (year.length <= 4) {
-                        setDlExpiry(value);
-                      }
-                    }}
-                    className="w-full border rounded px-3 py-2"
+                    onChange={setDlExpiry}
+                    disabled={onboardingSubmitted && !canEdit}
+                    ariaLabel="dl-expiry-date"
                   />
                   <FileUploadField label="Document Upload:" employeeId={targetEmployeeId || user?.employeeId || user?.id} category="dl" documentName="Driving License" value={dlFile} onChange={setDlFile} disabled={onboardingSubmitted && !canEdit} />
                 </>
