@@ -134,9 +134,12 @@ export default function Skills() {
 
   // Validate
   const validate = () => {
-    const hasRole = roleSections.some(s => s.role.trim() !== "");
-    if (!hasRole) {
-      setValidationError("Please add at least one role section with a role name.");
+    const emptySections = roleSections.filter(s => s.role.trim() === "");
+    if (emptySections.length > 0) {
+      const msg = emptySections.length === 1
+        ? "Please add role section with a role name."
+        : "Please add all role sections with a role name.";
+      setValidationError(msg);
       return false;
     }
     setValidationError("");
@@ -266,16 +269,7 @@ export default function Skills() {
                     category="resume"
                   />
                 </div>
-                <div className="flex-1">
-                  <FileUploadField
-                    label="CV Upload:"
-                    value={section.cvFile}
-                    onChange={file => handleCVFile(actualIdx, file)}
-                    disabled={formDisabled}
-                    employeeId={employeeId}
-                    category="cv"
-                  />
-                </div>
+
               </div>
               <div className="mb-2">
                 <EmpTypography.label>Skills:</EmpTypography.label>

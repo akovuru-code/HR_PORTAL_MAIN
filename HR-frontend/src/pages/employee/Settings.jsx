@@ -133,9 +133,9 @@ export default function EmployeeSettings() {
 
     //Country codes for phone number
     const countryCodes = [
-        { value: "US", code: "+1", country: "US" },
-        { value: "CA", code: "+1", country: "Canada" },
-        { value: "IN", code: "+91", country: "India" },
+        { value: "US", code: "+1", country: "USA" },
+        { value: "CA", code: "+1", country: "CANADA" },
+        { value: "IN", code: "+91", country: "INDIA" },
     ];
 
     const splitPhone = (value, savedCountry) => {
@@ -158,7 +158,7 @@ export default function EmployeeSettings() {
     const [email, setEmail] = useState(user?.email || "");
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
-    const [phoneCountry, setPhoneCountry] = useState("IN");
+    const [phoneCountry, setPhoneCountry] = useState("US");
     const [phone, setPhone] = useState("");
     const [about, setAbout] = useState("");
     const [status, setStatus] = useState("In Project");
@@ -216,7 +216,7 @@ export default function EmployeeSettings() {
             const res = await updateMyProfile({
                 firstName,
                 lastName,
-                phone: `${countryCodes.find((country) => country.value === phoneCountry).code}${phone}`,
+                phone: phone ? `${countryCodes.find((c) => c.value === phoneCountry).code}${phone}` : null,
                 phoneCountry,
                 aboutMe: about,
                 profileStatus: status,

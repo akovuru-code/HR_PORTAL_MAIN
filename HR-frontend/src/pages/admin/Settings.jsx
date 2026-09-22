@@ -135,16 +135,50 @@ export default function Settings() {
 
     //Country codes for phone number
     const countryCodes = [
-        { code: "+1", country: "US" },
-        { code: "+1", country: "Canada" },
-        { code: "+91", country: "India" },
+        { value: "US", code: "+1", country: "USA" },
+        { value: "CA", code: "+1", country: "CANADA" },
+        { value: "IN", code: "+91", country: "INDIA" },
     ];
+
+    const splitPhone = (rawValue, savedCountry) => {
+        let temp = String(rawValue || "").trim();
+        const selectedCountry = countryCodes.find((country) => country.value === savedCountry);
+        let detectedCountry = selectedCountry || countryCodes[0];
+
+        if (!temp) return { country: detectedCountry.value, number: "" };
+
+        let matched = true;
+        // Strip any repeated or accidentally stacked country codes (e.g. "+1+91+1...")
+        while (matched) {
+            matched = false;
+            for (const item of countryCodes.slice().sort((a, b) => b.code.length - a.code.length)) {
+                if (temp.startsWith(item.code)) {
+                    if (!selectedCountry) {
+                        detectedCountry = item;
+                    }
+                    temp = temp.slice(item.code.length).trim();
+                    matched = true;
+                    break;
+                }
+            }
+            if (temp.startsWith("+")) {
+                temp = temp.slice(1).trim();
+                matched = true;
+            }
+        }
+
+        const cleanNumber = temp.replace(/\D/g, "");
+        return {
+            country: detectedCountry.value,
+            number: cleanNumber,
+        };
+    };
 
     // Profile fields
     const [photoUrl, setPhotoUrl] = useState("");
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
-    const [countryCode, setCountryCode] = useState("+91");
+    const [phoneCountry, setPhoneCountry] = useState("US");
     const [phone, setPhone] = useState("");
     const [about, setAbout] = useState("");
     const [status, setStatus] = useState("In Project");
@@ -165,13 +199,12 @@ export default function Settings() {
             setFirstName(d.firstName || "");
             setLastName(d.lastName || "");
             if (d.phone) {
-                const match = d.phone.match(/^(\+\d{1,4})(\d{10})$/);
-                if (match) {
-                    setCountryCode(match[1]);
-                    setPhone(match[2].replace(/\s+/g, ''));
-                } else {
-                    setPhone(d.phone);
-                }
+                const { country, number } = splitPhone(d.phone, d.phoneCountry);
+                setPhoneCountry(country);
+                setPhone(number);
+            } else {
+                setPhoneCountry(d.phoneCountry || "US");
+                setPhone("");
             }
             setAbout(d.aboutMe || "");
             setStatus(d.profileStatus || "In Project");
@@ -205,10 +238,17 @@ export default function Settings() {
     async function handleSaveAll(e) {
         e.preventDefault();
         setSaving(true);
+        const cleanPhone = phone.replace(/\D/g, "");
+        const activeCode = countryCodes.find((c) => c.value === phoneCountry)?.code || "+1";
         try {
             const res = await updateMyProfile({
-                firstName, lastName, phone: `${countryCode}${phone}`, aboutMe: about,
-                profileStatus: status, statusDetails: buildStatusDetails(),
+                firstName,
+                lastName,
+                phone: cleanPhone ? `${activeCode}${cleanPhone}` : null,
+                phoneCountry,
+                aboutMe: about,
+                profileStatus: status,
+                statusDetails: buildStatusDetails(),
                 ...(photoUrl ? { profileImage: photoUrl } : {}),
             });
             if (res?.data?.user) login(res.data.user, localStorage.getItem("token"));
@@ -317,12 +357,12 @@ export default function Settings() {
 
                                 <div className="flex gap-2">
                                     <select
-                                        value={countryCode}
-                                        onChange={(e) => setCountryCode(e.target.value)}
+                                        value={phoneCountry}
+                                        onChange={(e) => setPhoneCountry(e.target.value)}
                                         className="border rounded px-3 py-2 bg-white"
                                     >
                                         {countryCodes.map((item) => (
-                                            <option key={item.code} value={item.code}>
+                                            <option key={item.value} value={item.value}>
                                                 {item.country} ({item.code})
                                             </option>
                                         ))}
