@@ -17,6 +17,7 @@ const Announcement = require('../models/announcement');
 const WorkEmployer = require('../models/workEmployer');
 const WorkClientDetail = require('../models/workClientDetail');
 const CompanySnapshot = require('../models/companySnapshot');
+const Company = require('../models/company');
 const Invoice = require('../models/invoice');
 const VendorEmployeeRate = require('../models/vendorEmployeeRate');
 const Recruiting = require('../models/recruiting');
@@ -28,6 +29,7 @@ const PerformanceReportReplacementRequest = require('../models/performanceReport
 const passwordResetController = require('../controllers/passwordResetController');
 const { requireApprovedDelete, requireApprovedEdit, consumeDeleteApproval, consumeEditApproval } = require('../services/deleteAuthorizationService');
 const { createTimesheetPdf, createMonthlyTimesheetPdf, safeFilenamePart } = require('../services/timesheetPdfService');
+const { getTimesheetLetterhead } = require('../config/timesheetLetterheads');
 
 function dateKeyFromUtcDate(date) { return date.toISOString().slice(0, 10); }
 function normalizeWeekStart(value) {
@@ -50,6 +52,34 @@ function monthDateBounds(value) {
   const end = new Date(Date.UTC(year, month, 0));
   return { start: dateKeyFromUtcDate(start), end: dateKeyFromUtcDate(end) };
 }
+
+async function timesheetLetterheadForEmployee(employee) {
+  const registeredCompany = String(employee?.presentEmployer || '').trim();
+  if (!registeredCompany) {
+    const error = new Error('This employee does not have a registered company, so a timesheet letterhead cannot be selected.');
+    error.status = 422;
+    throw error;
+  }
+
+  const company = await Company.findOne({
+    where: { name: registeredCompany },
+    attributes: ['id', 'name'],
+  });
+  if (!company) {
+    const error = new Error(`The registered company "${registeredCompany}" could not be found for this employee.`);
+    error.status = 422;
+    throw error;
+  }
+
+  const letterhead = getTimesheetLetterhead(company);
+  if (!letterhead) {
+    const error = new Error(`No timesheet letterhead is configured for ${company.name}.`);
+    error.status = 422;
+    throw error;
+  }
+  return letterhead;
+}
+
 function submissionStatus(entries) {
   const statuses = entries.map(entry => entry.status);
   if (statuses.some(status => status === 'Rejected')) return 'Rejected';
@@ -84,6 +114,33 @@ router.use(authenticateToken, requireAdmin, (req, res, next) => {
   if (!Array.isArray(req.user.permissions) || !req.user.permissions.includes(permission)) return res.status(403).json({ error: `Missing permission: ${permission}` });
   next();
 });
+
+// HR Admins retain Vendor read access through operations:manage, but Vendor
+// mutations are intentionally reserved for the roles that already had them.
+// This is route-specific so it does not change Client, Project, or any other
+// operations-module permissions.
+function denyHrVendorWrite(req, res, next) {
+  const isHrAdmin = accountType(req.user) === 'admin'
+    && String(req.user?.adminRole || req.user?.admin_role || '').toLowerCase() === 'hr';
+  if (isHrAdmin) return res.status(403).json({ error: 'HR Admin has read-only Vendor access.' });
+  next();
+}
+
+// Vendor audit metadata must be derived from the authenticated account, never
+// from a display name supplied by the browser.
+async function vendorAuditActor(req) {
+  const email = String(req.user?.email || '').trim();
+  if (email) {
+    const employee = await Employee.findOne({ where: { email }, attributes: ['name', 'firstName', 'lastName'] });
+    if (employee) {
+      const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(' ').trim();
+      if (fullName) return fullName;
+      if (employee.name) return employee.name;
+    }
+    return email;
+  }
+  return 'Unknown User';
+}
 
 // POST /api/admin/invite
 router.post('/invite', authenticateToken, async (req, res) => {
@@ -560,15 +617,17 @@ router.get('/timesheets/:employeeId/weeks/:weekStart/download', authenticateToke
     if (!weekStart || !Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ error: 'A valid employee and week start date are required.' });
     const dates = weekDateKeys(weekStart);
     const [employee, entries, summary] = await Promise.all([
-      Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name'] }),
+      Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name', 'presentEmployer'] }),
       TimesheetEntry.findAll({ where: { employee_id: employeeId, dateKey: { [Op.in]: dates } }, order: [['dateKey', 'ASC'], ['id', 'ASC']] }),
       TimesheetWeeklySummary.findOne({ where: { employeeId, weekStart }, attributes: ['weekStart', 'statusReport', 'projectName'] }),
     ]);
     if (!employee || !entries.length) return res.status(404).json({ error: 'Timesheet entries were not found for the selected employee and week.' });
     const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || `Employee ${employeeId}`;
+    const letterhead = await timesheetLetterheadForEmployee(employee);
     const firstEntryWithValue = entries.find(entry => entry.client || entry.project);
     const pdf = await createTimesheetPdf({
       employeeName,
+      letterhead,
       weekStart,
       weekEnd: dates[6],
       entries,
@@ -582,7 +641,7 @@ router.get('/timesheets/:employeeId/weeks/:weekStart/download', authenticateToke
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(Buffer.from(pdf));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -596,7 +655,7 @@ router.get('/timesheets/:employeeId/months/:monthKey/download', authenticateToke
     if (!bounds || !Number.isInteger(employeeId) || employeeId <= 0) return res.status(400).json({ error: 'A valid employee and calendar month are required.' });
 
     const [employee, entries] = await Promise.all([
-      Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name'] }),
+      Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name', 'presentEmployer'] }),
       TimesheetEntry.findAll({
         where: { employee_id: employeeId, dateKey: { [Op.between]: [bounds.start, bounds.end] } },
         order: [['dateKey', 'ASC'], ['id', 'ASC']],
@@ -624,7 +683,8 @@ router.get('/timesheets/:employeeId/months/:monthKey/download', authenticateToke
       statusReport: summaryByWeek.get(weekStart)?.statusReport || '',
     }));
     const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || `Employee ${employeeId}`;
-    const pdf = await createMonthlyTimesheetPdf({ employeeName, monthStart: bounds.start, monthEnd: bounds.end, weeks });
+    const letterhead = await timesheetLetterheadForEmployee(employee);
+    const pdf = await createMonthlyTimesheetPdf({ employeeName, letterhead, monthStart: bounds.start, monthEnd: bounds.end, weeks });
     const monthName = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
       .format(new Date(`${bounds.start}T00:00:00.000Z`)).replace(/\s+/g, '_');
     const filename = `${safeFilenamePart(employeeName).replace(/\s+/g, '_')}_Monthly_Timesheet_${monthName}.pdf`;
@@ -632,7 +692,7 @@ router.get('/timesheets/:employeeId/months/:monthKey/download', authenticateToke
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(Buffer.from(pdf));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -880,11 +940,57 @@ router.get('/employees', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/admin/employee-training-status
+// Read-only monitoring data. Employee Settings remains the sole writer for
+// profileStatus and statusDetails; this route only projects saved values.
+router.get('/employee-training-status', requireRootOrAdminRole('recruitment'), async (_req, res) => {
+  try {
+    const employeeAccounts = await User.findAll({
+      where: { accountType: 'employee' },
+      attributes: ['email'],
+    });
+    const employeeEmails = employeeAccounts
+      .map(account => String(account.email || '').trim().toLowerCase())
+      .filter(Boolean);
+
+    if (!employeeEmails.length) return res.json({ employees: [] });
+
+    const employees = await Employee.findAll({
+      where: {
+        profileStatus: 'In Training',
+        [Op.and]: [Employee.sequelize.where(
+          Employee.sequelize.fn('LOWER', Employee.sequelize.col('email')),
+          { [Op.in]: employeeEmails },
+        )],
+      },
+      attributes: ['employee_id', 'name', 'firstName', 'lastName', 'email', 'profileStatus', 'statusDetails'],
+      order: [['firstName', 'ASC'], ['lastName', 'ASC'], ['name', 'ASC']],
+    });
+
+    res.json({
+      employees: employees.map(employee => {
+        const details = employee.statusDetails || {};
+        return {
+          employeeId: employee.employee_id,
+          employeeName: [employee.firstName, employee.lastName].filter(Boolean).join(' ') || employee.name || employee.email || '—',
+          email: employee.email || '',
+          currentStatus: employee.profileStatus,
+          trainingModules: details.trainingModules || '',
+          certifications: details.certifications || '',
+        };
+      }),
+    });
+  } catch (err) {
+    console.error('[admin/employee-training-status] error:', err);
+    res.status(500).json({ error: 'Unable to load employee training status.' });
+  }
+});
+
 // GET /api/admin/employee-associations
 // Read-only consolidated view for Root, HR, and Accounts Admins. It derives
 // every value from the existing employee, work-association, and vendor-rate
 // records; this endpoint does not maintain a second copy of those fields.
-router.get('/employee-associations', requireRootOrAdminRole('hr', 'accounts', 'payroll'), async (req, res) => {
+router.get('/employee-associations', requireRootOrAdminRole('hr', 'accounts', 'payroll', 'recruitment'), async (req, res) => {
   try {
     const [employees, associationRows, vendorDefinitions, vendorRates] = await Promise.all([
       Employee.findAll({
@@ -1403,7 +1509,25 @@ async function getGroupedByType(type) {
     const employeeIds = [...new Set(rates.map(rate => rate.employee_id))];
     const employees = employeeIds.length ? await Employee.findAll({ where: { employee_id: { [Op.in]: employeeIds } }, attributes: ['employee_id', 'firstName', 'lastName', 'name'] }) : [];
     const names = Object.fromEntries(employees.map(employee => [employee.employee_id, `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.name || 'Employee']));
-    values.forEach(item => { item.employeeRates = rates.filter(rate => rate.vendor_id === item.id).map(rate => ({ employeeId: rate.employee_id, name: names[rate.employee_id] || 'Employee', rate: Number(rate.rate) })); });
+    values.forEach(item => {
+      const employeeRates = rates
+        .filter(rate => rate.vendor_id === item.id)
+        .map(rate => ({ employeeId: rate.employee_id, name: names[rate.employee_id] || 'Employee', rate: Number(rate.rate) }));
+      item.employeeRates = employeeRates;
+
+      // Employee/rate rows created in the Vendor form live in
+      // vendor_employee_rates, not in work_client_details. Merge that same
+      // persisted mapping into the details projection so the UI has one
+      // complete employee list without creating duplicate associations.
+      employeeRates.forEach(rateEntry => {
+        const existingEmployee = item.employees.find(employee => employee.employeeId === rateEntry.employeeId);
+        if (existingEmployee) {
+          existingEmployee.rate = rateEntry.rate;
+        } else {
+          item.employees.push({ ...rateEntry, removable: false });
+        }
+      });
+    });
   }
   return values;
 }
@@ -1426,8 +1550,8 @@ async function syncVendorEmployeeRates(vendorId, employeeRates = []) {
 }
 
 // Helper: build work_client_details columns + meta from a client/vendor/primeVendor form payload
-function buildWorkClientFields(body, existingMeta = {}) {
-  const { name, status, startDate, endDate, members, contact, address, comment, vendor, primeVendor, client, createdBy, updatedBy, billingContactName, billingEmail, billingAddress, billingAddressSameAsVendorAddress, paymentTerms, customNetDays, currency } = body;
+function buildWorkClientFields(body, existingMeta = {}, auditActor = '') {
+  const { name, status, startDate, endDate, members, contact, address, comment, vendor, primeVendor, client, billingContactName, billingEmail, billingAddress, billingAddressSameAsVendorAddress, paymentTerms, customNetDays, currency } = body;
   if (!name) throw new Error('name is required');
   if (paymentTerms === 'Custom' && (!Number.isInteger(Number(customNetDays)) || Number(customNetDays) <= 0)) throw new Error('Custom Net Days must be a positive whole number');
 
@@ -1449,8 +1573,8 @@ function buildWorkClientFields(body, existingMeta = {}) {
       status: status || 'Active',
       comment: comment || '',
       members: members ?? 0,
-      createdBy: existingMeta.createdBy || createdBy || '',
-      updatedBy: updatedBy || existingMeta.updatedBy || '',
+      createdBy: existingMeta.createdBy || auditActor || '',
+      updatedBy: auditActor || existingMeta.updatedBy || '',
       vendor: vendor || { enabled: false, name: '', startDate: '', endDate: '' },
       primeVendor: primeVendor || { enabled: false, name: '', startDate: '', endDate: '' },
       client: client || { enabled: false, name: '', startDate: '', endDate: '' },
@@ -1496,8 +1620,8 @@ function formatWorkClientEntry(row) {
 }
 
 // Helper: create an admin-defined client/vendor/primeVendor entry (employee_id null)
-async function createWorkClientEntry(type, body) {
-  const { columns, meta } = buildWorkClientFields(body);
+async function createWorkClientEntry(type, body, auditActor = '') {
+  const { columns, meta } = buildWorkClientFields(body, {}, auditActor);
   const row = await WorkClientDetail.create({ employee_id: null, type, ...columns, meta });
   if (type === 'vendor' && body.employeeRates) await syncVendorEmployeeRates(row.id, body.employeeRates);
   const formatted = formatWorkClientEntry(row);
@@ -1506,14 +1630,14 @@ async function createWorkClientEntry(type, body) {
 }
 
 // Helper: update an admin-defined entry (only allowed for employee_id IS NULL rows)
-async function updateWorkClientEntry(type, id, body) {
+async function updateWorkClientEntry(type, id, body, auditActor = '') {
   const row = await WorkClientDetail.findOne({ where: { id, type, employee_id: null } });
   if (!row) {
     const err = new Error('Entry not found or cannot be edited (employee-submitted data)');
     err.status = 404;
     throw err;
   }
-  const { columns, meta } = buildWorkClientFields(body, row.meta || {});
+  const { columns, meta } = buildWorkClientFields(body, row.meta || {}, auditActor);
   await row.update({ ...columns, meta });
   if (type === 'vendor' && body.employeeRates) await syncVendorEmployeeRates(row.id, body.employeeRates);
   return formatWorkClientEntry(row);
@@ -1623,8 +1747,8 @@ router.post('/clients', authenticateToken, async (req, res) => {
 });
 
 // POST /api/admin/vendors
-router.post('/vendors', authenticateToken, async (req, res) => {
-  try { res.json({ vendor: await createWorkClientEntry('vendor', req.body) }); }
+router.post('/vendors', authenticateToken, denyHrVendorWrite, async (req, res) => {
+  try { res.json({ vendor: await createWorkClientEntry('vendor', req.body, await vendorAuditActor(req)) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1641,8 +1765,8 @@ router.patch('/clients/:id', authenticateToken, requireApprovedEdit('client'), a
 });
 
 // PATCH /api/admin/vendors/:id
-router.patch('/vendors/:id', authenticateToken, requireApprovedEdit('vendor'), async (req, res) => {
-  try { const vendor = await updateWorkClientEntry('vendor', req.params.id, req.body); await consumeEditApproval(req, 'vendor', req.params.id); res.json({ vendor }); }
+router.patch('/vendors/:id', authenticateToken, denyHrVendorWrite, requireApprovedEdit('vendor'), async (req, res) => {
+  try { const vendor = await updateWorkClientEntry('vendor', req.params.id, req.body, await vendorAuditActor(req)); await consumeEditApproval(req, 'vendor', req.params.id); res.json({ vendor }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
@@ -1659,7 +1783,7 @@ router.delete('/clients/:id', authenticateToken, requireApprovedDelete('client')
 });
 
 // DELETE /api/admin/vendors/:id
-router.delete('/vendors/:id', authenticateToken, requireApprovedDelete('vendor'), async (req, res) => {
+router.delete('/vendors/:id', authenticateToken, denyHrVendorWrite, requireApprovedDelete('vendor'), async (req, res) => {
   try { await deleteWorkClientEntry('vendor', req.params.id); await consumeDeleteApproval(req, 'vendor', req.params.id); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
@@ -1683,13 +1807,13 @@ router.delete('/clients/:id/assign-employee/:employeeId', authenticateToken, req
 });
 
 // POST /api/admin/vendors/:id/assign-employee
-router.post('/vendors/:id/assign-employee', authenticateToken, async (req, res) => {
+router.post('/vendors/:id/assign-employee', authenticateToken, denyHrVendorWrite, async (req, res) => {
   try { await assignEmployeeToEntry('vendor', req.params.id, req.body.employeeId); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // DELETE /api/admin/vendors/:id/assign-employee/:employeeId
-router.delete('/vendors/:id/assign-employee/:employeeId', authenticateToken, requireApprovedDelete('vendor_employee_assignment', req => `${req.params.id}:${req.params.employeeId}`), async (req, res) => {
+router.delete('/vendors/:id/assign-employee/:employeeId', authenticateToken, denyHrVendorWrite, requireApprovedDelete('vendor_employee_assignment', req => `${req.params.id}:${req.params.employeeId}`), async (req, res) => {
   try { await unassignEmployeeFromEntry('vendor', req.params.id, req.params.employeeId); await consumeDeleteApproval(req, 'vendor_employee_assignment', `${req.params.id}:${req.params.employeeId}`); res.json({ success: true }); }
   catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });

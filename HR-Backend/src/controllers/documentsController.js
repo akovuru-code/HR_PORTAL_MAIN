@@ -88,10 +88,13 @@ exports.registerDocument = async (req, res) => {
     const { name, url, filename, originalName, document_type, fileData, expiry } = req.body;
     if (!url) return res.status(400).json({ error: 'url is required' });
 
-    // Resolve modifiedBy from the authenticated user
+    // Restricted documents are administered on behalf of an employee, so retain
+    // the actual authenticated administrator in the audit-facing label.
     const userModel = require('../models/user');
     const authUser = await userModel.getUserById(req.user.id);
-    const modifiedBy = (employee.firstName && employee.lastName)
+    const modifiedBy = String(document_type || '').startsWith('restricted_')
+      ? authUser?.email || authUser?.name || 'Unknown'
+      : (employee.firstName && employee.lastName)
       ? `${employee.firstName} ${employee.lastName}`.trim()
       : authUser?.email || authUser?.name || 'Unknown';
 

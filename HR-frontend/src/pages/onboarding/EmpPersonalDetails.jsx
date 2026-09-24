@@ -45,6 +45,14 @@ function DlStateSelect({ nationality, value, onChange }) {
 
 const isPassportInput = value => /^[A-Za-z0-9]*$/.test(value);
 
+const apiErrorMessage = (error, fallback = 'Request could not be completed.') => {
+  const errors = error?.response?.data?.errors;
+  if (Array.isArray(errors) && errors.length) {
+    return errors.map(item => item.msg || item.message || 'Invalid value').join('\n');
+  }
+  return error?.response?.data?.error || error?.response?.data?.message || error?.message || fallback;
+};
+
 // This is a reusable component for a custom file upload input field.
 function CustomFileUpload() {
   const [fileNames, setFileNames] = useState([]);
@@ -395,7 +403,7 @@ export default function ProfileInfo() {
       alert('Draft saved');
     } catch (err) {
       setSaving(false);
-      setSaveError(err?.response?.data?.error || err.message || 'Save failed');
+      setSaveError(apiErrorMessage(err, 'Save failed.'));
     }
   };
 
@@ -2251,8 +2259,7 @@ export default function ProfileInfo() {
                     alert('Submitted successfully');
                   } catch (err) {
                     console.error('Submit failed', err?.response?.data || err.message || err);
-                    const errs = err?.response?.data?.errors;
-                    alert('Submit failed:\n' + (Array.isArray(errs) ? errs.map(e => e.msg).join('\n') : (err?.response?.data?.error || err.message || 'unknown')));
+                    alert('Submit failed:\n' + apiErrorMessage(err, 'unknown'));
                   }
                 }}>Confirm</EmpTypography.button>
                 <EmpTypography.button onClick={() => setShowConfirmModal(false)}>Cancel</EmpTypography.button>

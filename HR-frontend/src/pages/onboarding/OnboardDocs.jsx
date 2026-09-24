@@ -260,8 +260,14 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
   };
 
   const validateForSubmit = () => {
-    if (!bank.name || !bank.acc || !bank.routing || !bank.type) {
-      setValidationError("Bank Name, Account Number, Routing Number, and Account Type are required before submitting.");
+    const missingBankField = [
+      [bank.name, 'Please enter the Bank Name.'],
+      [bank.acc, 'Please enter the Account Number.'],
+      [bank.routing, 'Please enter the Routing Number.'],
+      [bank.type, 'Please select an Account Type.'],
+    ].find(([value]) => !String(value || '').trim());
+    if (missingBankField) {
+      setValidationError(missingBankField[1]);
       return false;
     }
     setValidationError("");

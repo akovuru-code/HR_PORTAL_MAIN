@@ -50,12 +50,16 @@ const companyNameAliases = { siritek: 'siritek', gannu: 'gannu', savvy: 'savvy',
 
 function normalizeCompanyName(name = '') { return String(name).toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
-function getInvoiceTemplate(company) {
+function resolveCompanyTemplateKey(company) {
   const id = company?.id ?? company?.company_id;
   const name = normalizeCompanyName(company?.name || company);
-  const key = companyIdToTemplate[id] || Object.entries(companyNameAliases).find(([alias]) => name.includes(alias))?.[1];
-  if (!key) throw new Error(`No invoice template is configured for company ${company?.name || id || 'unknown'}`);
+  return companyIdToTemplate[id] || Object.entries(companyNameAliases).find(([alias]) => name.includes(alias))?.[1] || null;
+}
+
+function getInvoiceTemplate(company) {
+  const key = resolveCompanyTemplateKey(company);
+  if (!key) throw new Error(`No invoice template is configured for company ${company?.name || company?.id || company?.company_id || 'unknown'}`);
   return { key, ...templates[key] };
 }
 
-module.exports = { getInvoiceTemplate, layouts };
+module.exports = { getInvoiceTemplate, resolveCompanyTemplateKey, layouts };

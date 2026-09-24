@@ -7,7 +7,7 @@ const menuItems = [
     { label: "Dashboard", icon: <FaChartBar />, href: "/admin/dashboard" },
     { label: "Employees", icon: <FaUsers />, href: "/admin/employees", permission: 'employee:read' },
     { label: "Timesheet & Status Report", icon: <FaClock />, href: "/admin/timesheet", permission: 'timesheet:view' },
-    { label: "Employee Performance Review", icon: <FaChartLine />, href: "/admin/employee-performance-reports", rootOnly: true },
+    { label: "Employee Performance Review", icon: <FaChartLine />, href: "/admin/employee-performance-reports", allowedAdminRoles: ['hr'] },
     /* Hidden for Admin: Currently supports only a single user's details. 
     Requires enhancement to support multiple users before it can be enabled in a future release. */
     // { label: "Onboarding", icon: <FaFileAlt />, href: "/admin/onboarding" },
@@ -22,7 +22,8 @@ const bottomItems = [
 export default function AdminSidebar() {
     // If using react-router, use useLocation for active route
     const location = useLocation();
-    const { isRootAdmin, permissions } = useAuth();
+    const { isRootAdmin, permissions, user } = useAuth();
+    const adminRole = String(user?.adminRole || user?.admin_role || '').toLowerCase();
     const billingActive = location.pathname.startsWith('/admin/options/payments') || location.pathname.startsWith('/admin/invoice');
     const canBill = isRootAdmin || permissions.includes('invoice:manage');
     return (
@@ -35,7 +36,10 @@ export default function AdminSidebar() {
                 Admin Panel
             </div>
             <nav className="flex-1" aria-label="Main menu">
-                {menuItems.filter(item => (isRootAdmin || !item.rootOnly) && (isRootAdmin || !item.permission || permissions.includes(item.permission))).map((item) => {
+                {menuItems.filter(item => (
+                    (isRootAdmin || (!item.rootOnly && (!item.allowedAdminRoles || item.allowedAdminRoles.includes(adminRole))))
+                    && (isRootAdmin || !item.permission || permissions.includes(item.permission))
+                )).map((item) => {
                     const isActive = location.pathname.startsWith(item.href);
                     return (<React.Fragment key={item.label}>
                         <Link

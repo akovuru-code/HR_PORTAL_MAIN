@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const authenticateToken = require('../middleware/auth');
-const { accountType, requireRootAdmin } = require('../middleware/authorization');
+const { accountType, requireRootAdmin, requireRootOrAdminRole } = require('../middleware/authorization');
 const controller = require('../controllers/performanceReportsController');
 const { TEMPLATE_ROOT } = require('../services/performanceReviewTemplateSeed');
 
@@ -70,9 +70,9 @@ router.post('/me/submissions/upload', requireEmployee, uploadCompletedDocument, 
 router.post('/me/submissions/:reportId/submit', requireEmployee, controller.submitMyReport);
 router.post('/me/submissions/:reportId/replacement-requests', requireEmployee, controller.requestReplacement);
 router.get('/me/submissions/:submissionId/download', requireEmployee, controller.downloadMySubmission);
-router.get('/admin', requireRootAdmin, controller.listForRootAdmin);
-router.get('/admin/submissions/:submissionId/download', requireRootAdmin, controller.downloadForRootAdmin);
-router.get('/admin/submissions/:submissionId/preview', requireRootAdmin, controller.previewForRootAdmin);
+router.get('/admin', requireRootOrAdminRole('hr'), controller.listForRootAdmin);
+router.get('/admin/submissions/:submissionId/download', requireRootOrAdminRole('hr'), controller.downloadForRootAdmin);
+router.get('/admin/submissions/:submissionId/preview', requireRootOrAdminRole('hr'), controller.previewForRootAdmin);
 router.patch('/admin/replacement-requests/:requestId/approve', requireRootAdmin, controller.approveReplacementRequest);
 router.patch('/admin/replacement-requests/:requestId/reject', requireRootAdmin, controller.rejectReplacementRequest);
 

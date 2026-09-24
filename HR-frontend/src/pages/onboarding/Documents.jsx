@@ -5,6 +5,7 @@ import { useDocumentsStore } from "../../store/documentsStore";
 import { useAuth } from "../../hooks/useAuth";
 import { useAdminView } from "../../contexts/AdminViewContext";
 import { saveOnboardingFull, submitOnboarding, getDraft, getOnboarding, getDocuments, registerDocument } from "../../api/onboarding";
+import { confirmOrRequestDelete } from "../../utils/adminDeleteRequest";
 import axios from "axios";
 
 const api = axios.create({ baseURL: "/api" });
@@ -77,7 +78,19 @@ function buildPersonalInfoDocs(employee) {
   return rows;
 }
 
-const initialRestrictedDocs = [];
+const isRestrictedDocument = (doc) => String(doc.source || '').startsWith('restricted_');
+
+const toDocumentRow = (document) => ({
+  id: `doc-${document.document_id}`,
+  documentId: document.document_id,
+  name: document.name || document.filename || document.originalName || "",
+  expiry: document.expiry || "",
+  modifiedBy: document.modifiedBy || "",
+  file: document.fileData || (document.url ? { url: document.url, originalName: document.originalName, filename: document.filename } : null),
+  source: document.document_type || "user-added",
+  categoryType: document.fileData?.categoryType || null,
+  readOnly: false,
+});
 
 // Maps dropdown category values to document_type prefixes/values stored in `source`
 const CATEGORY_MAP = {
@@ -168,6 +181,7 @@ export default function ProfileDocuments() {
   const { user } = useAuth();
   const { targetEmployeeId } = useAdminView() || {};
   const isAdmin = ['admin', 'root_admin', 'hr'].includes(String(user?.accountType || user?.role || '').toLowerCase());
+  const isAdminEmployeeDetails = isAdmin && Boolean(targetEmployeeId);
   const [saving, setSaving] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [validationError, setValidationError] = useState("");
@@ -197,23 +211,16 @@ export default function ProfileDocuments() {
 
         // Load all documents from the Document table for the selected employee
         const docsRes = await getDocuments(employeeId);
-        const allDocs = (docsRes?.data?.documents || []).map(d => ({
-          id: `doc-${d.document_id}`,
-          name: d.name || d.filename || d.originalName || "",
-          expiry: d.expiry || "",
-          modifiedBy: d.modifiedBy || "",
-          file: d.fileData || (d.url ? { url: d.url, originalName: d.originalName, filename: d.filename } : null),
-          source: d.document_type || "user-added",
-          categoryType: d.fileData?.categoryType || null,
-          readOnly: false,
-        }));
+        const allDocs = (docsRes?.data?.documents || []).map(toDocumentRow);
+        const normalDocs = allDocs.filter(doc => !isRestrictedDocument(doc));
+        const employeeRestrictedDocs = allDocs.filter(isRestrictedDocument);
 
         // Overlay with draft if exists — draft reflects unsaved deletions in this tab
         const draft = await getDraft(employeeId, 'documents');
         const draftPayload = draft?.data?.payload;
         if (draftPayload?.docs) {
           // Draft records which docs the user has kept/deleted in this tab
-          const dbDocMap = new Map(allDocs.map(d => [d.id, d]));
+          const dbDocMap = new Map(normalDocs.map(d => [d.id, d]));
           const draftIds = new Set(draftPayload.docs.map(d => d.id));
           // For each draft doc, pull modifiedBy (and file) from DB record if available
           const mergedDraft = draftPayload.docs.map(d => {
@@ -221,29 +228,22 @@ export default function ProfileDocuments() {
             return dbDoc ? { ...d, modifiedBy: dbDoc.modifiedBy || d.modifiedBy, file: dbDoc.file || d.file } : d;
           });
           // Include docs from Document table not yet in draft (uploaded from other tabs)
-          const newFromOtherTabs = allDocs.filter(d => !draftIds.has(d.id));
+          const newFromOtherTabs = normalDocs.filter(d => !draftIds.has(d.id));
           setDocs([...mergedDraft, ...newFromOtherTabs]);
         } else {
-          setDocs(allDocs);
+          setDocs(normalDocs);
         }
 
-        // Restricted docs for admin — use initialRestrictedDocs as default
+        // Restricted documents are employee-scoped records, shown separately.
         if (isAdmin) {
-          setRestrictedDocs(initialRestrictedDocs);
+          setRestrictedDocs(employeeRestrictedDocs);
         }
       } catch (err) {
         console.error("Error loading documents:", err);
       }
     }
     loadDocs();
-  }, [user]);
-
-  // Initialize restricted docs for admin if empty
-  useEffect(() => {
-    if (isAdmin && restrictedDocs.length === 0) {
-      setRestrictedDocs(initialRestrictedDocs);
-    }
-  }, [isAdmin]);
+  }, [user, targetEmployeeId, isAdmin, setDocs, setRestrictedDocs]);
 
   const [filterCategory, setFilterCategory] = useState("");
   const [filterFile, setFilterFile] = useState(null);
@@ -274,9 +274,34 @@ export default function ProfileDocuments() {
     }
   };
 
-  const handleRestrictedFileUpload = async (docId, file) => {
+  const restrictedDocumentType = (doc) => (
+    isRestrictedDocument(doc)
+      ? doc.source
+      : `restricted_${String(doc.id).replace(/[^a-zA-Z0-9_-]/g, '')}`
+  );
+
+  const saveRestrictedDocument = async (doc, fileInfo = doc.file) => {
+    const employeeId = targetEmployeeId || user?.employeeId || user?.id;
+    if (!employeeId || !fileInfo?.url) return;
+
+    const registered = await registerDocument({
+      employeeId,
+      name: doc.name || fileInfo.originalName || fileInfo.filename || 'Restricted Document',
+      url: fileInfo.url,
+      filename: fileInfo.filename,
+      originalName: fileInfo.originalName,
+      document_type: restrictedDocumentType(doc),
+      fileData: fileInfo,
+      expiry: doc.expiry || null,
+    });
+    const saved = registered?.data?.document;
+    if (saved) updateRestrictedDoc(doc.id, toDocumentRow(saved));
+  };
+
+  const handleRestrictedFileUpload = async (doc, file) => {
     const employeeId = targetEmployeeId || user?.employeeId || user?.id;
     if (!employeeId) return;
+    setUploadingDocId(doc.id);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -285,13 +310,47 @@ export default function ProfileDocuments() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       const fileInfo = res.data.file;
-      updateRestrictedDoc(docId, {
-        file: { url: fileInfo.url, originalName: fileInfo.originalName, filename: fileInfo.filename, category: fileInfo.category },
-        modifiedBy: user?.name || user?.email || "Unknown",
-      });
+      const savedFile = { url: fileInfo.url, originalName: fileInfo.originalName, filename: fileInfo.filename, category: fileInfo.category };
+      await saveRestrictedDocument(doc, savedFile);
     } catch (err) {
       console.error("Upload failed:", err);
       alert("Upload failed: " + (err?.response?.data?.error || err.message));
+    } finally {
+      setUploadingDocId(null);
+    }
+  };
+
+  const handleRestrictedExpirySave = async (doc, expiry) => {
+    const nextDoc = { ...doc, expiry };
+    updateRestrictedDoc(doc.id, { expiry });
+    if (!doc.file?.url) return;
+    try {
+      await saveRestrictedDocument(nextDoc);
+    } catch (err) {
+      console.error('Unable to save restricted document expiry:', err);
+      alert('Unable to save expiry date: ' + (err?.response?.data?.error || err.message));
+    }
+  };
+
+  const handleRestrictedDelete = async (doc) => {
+    if (!doc.documentId) {
+      removeRestrictedDoc(doc.id);
+      return;
+    }
+
+    const isRootAdmin = String(user?.accountType || user?.role || '').toLowerCase() === 'root_admin';
+    try {
+      const approved = await confirmOrRequestDelete({
+        isRootAdmin,
+        resourceType: 'document',
+        resourceId: doc.documentId,
+        resourceLabel: doc.name || 'restricted document',
+      });
+      if (!approved) return;
+      await api.delete(`/documents/${doc.documentId}`);
+      removeRestrictedDoc(doc.id);
+    } catch (err) {
+      alert('Unable to delete restricted document: ' + (err?.response?.data?.error || err.message));
     }
   };
 
@@ -412,26 +471,28 @@ export default function ProfileDocuments() {
             <option value="work">Work</option>
             <option value="visa">Visa</option>
           </select>
-          <input
-            type="file"
-            className="text-xs"
-            disabled={uploadingCategoryFile || (onboardingSubmitted && !canEdit)}
-            onChange={event => {
-              const file = event.target.files?.[0];
-              if (file) handleCategoryUpload(file);
-              event.target.value = '';
-            }}
-          />
-          <button
-            className="px-4 py-1 bg-blue-100 text-blue-900 rounded-lg text-sm font-semibold transition duration-150 hover:bg-blue-200 active:scale-95 active:bg-blue-300 focus:outline-none border border-blue-200"
-            style={{ minWidth: 80 }}
-            onClick={handleFilter}
-          >
-            Result
-          </button>
+          {isAdmin && !isAdminEmployeeDetails && <>
+            <input
+              type="file"
+              className="text-xs"
+              disabled={uploadingCategoryFile || (onboardingSubmitted && !canEdit)}
+              onChange={event => {
+                const file = event.target.files?.[0];
+                if (file) handleCategoryUpload(file);
+                event.target.value = '';
+              }}
+            />
+            <button
+              className="px-4 py-1 bg-blue-100 text-blue-900 rounded-lg text-sm font-semibold transition duration-150 hover:bg-blue-200 active:scale-95 active:bg-blue-300 focus:outline-none border border-blue-200"
+              style={{ minWidth: 80 }}
+              onClick={handleFilter}
+            >
+              Result
+            </button>
+          </>}
         </div>
-        {uploadingCategoryFile && <div className="mt-2 text-xs text-gray-700">Uploading document...</div>}
-        {filterResult && <div className="mt-2 text-xs text-gray-700">{filterResult}</div>}
+        {isAdmin && !isAdminEmployeeDetails && uploadingCategoryFile && <div className="mt-2 text-xs text-gray-700">Uploading document...</div>}
+        {isAdmin && !isAdminEmployeeDetails && filterResult && <div className="mt-2 text-xs text-gray-700">{filterResult}</div>}
       </div>
 
       {/* Documents Table — read-only, all changes via originating tabs */}
@@ -525,6 +586,7 @@ export default function ProfileDocuments() {
                           if (!isValidDateYear(nextValue)) return;
                           updateRestrictedDoc(doc.id, { expiry: nextValue });
                         }}
+                        onBlur={(e) => handleRestrictedExpirySave(doc, clampDateYear(e.target.value))}
                       />
                     </td>
                     <td className="border px-2 py-1"><EmpTypography.small>{doc.modifiedBy}</EmpTypography.small></td>
@@ -541,14 +603,15 @@ export default function ProfileDocuments() {
                     <td className="border px-2 py-1 text-center">
                       <label className="cursor-pointer inline-flex items-center gap-1 text-bg-gray-50 hover:text-grey-800 font-medium">
                         <span className="inline-block align-middle"><span role="img" aria-label="upload">📤</span></span>
-                        <span>Upload</span>
+                        <span>{uploadingDocId === doc.id ? 'Uploading...' : 'Upload'}</span>
                         <input
                           type="file"
                           className="hidden"
                           accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                          disabled={uploadingDocId === doc.id}
                           onChange={e => {
                             const file = e.target.files[0];
-                            if (file) handleRestrictedFileUpload(doc.id, file);
+                            if (file) handleRestrictedFileUpload(doc, file);
                             e.target.value = "";
                           }}
                         />
@@ -558,7 +621,7 @@ export default function ProfileDocuments() {
                       <button
                         title="Delete"
                         className="text-lg px-2 py-1 text-red-600 hover:text-red-800 focus:outline-none"
-                        onClick={() => removeRestrictedDoc(doc.id)}
+                        onClick={() => handleRestrictedDelete(doc)}
                       >🗑️</button>
                     </td>
                   </tr>
@@ -581,7 +644,7 @@ export default function ProfileDocuments() {
         </div>
       )}
 
-      <div className="mt-2 text-xs text-gray-400 text-right">Read-only — upload or remove files from their respective tabs.</div>
+      <div className="mt-2 text-xs text-gray-400 text-right">Normal Documents are read-only — update them from their respective tabs.</div>
 
       {/* Confirmation Modal for Submit */}
       {showConfirmModal && (

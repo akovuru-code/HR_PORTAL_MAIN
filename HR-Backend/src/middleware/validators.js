@@ -12,7 +12,7 @@ const handleValidation = (req, res, next) => {
 };
 
 const optionalSsn = (field) =>
-    body(field).optional({ nullable: true, checkFalsy: true }).matches(/^[0-9]{9}$/).withMessage(`${field} must contain exactly 9 numeric digits`);
+    body(field).optional({ nullable: true, checkFalsy: true }).matches(/^\d{3}-?\d{2}-?\d{4}$/).withMessage(`${field} must contain exactly 9 numeric digits`);
 
 const optionalPassportNumber = (field) =>
     body(field).optional({ nullable: true, checkFalsy: true }).matches(/^[A-Za-z0-9]+$/).withMessage(`${field} must contain letters and numbers only`);

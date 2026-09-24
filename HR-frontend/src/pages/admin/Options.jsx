@@ -2,7 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import AdminSidebar from "../../components/admin/Admin_sidebar";
-import { FaBuilding, FaHandshake, FaUsers, FaUserPlus, FaFileAlt, FaBriefcase, FaLaptop, FaCalendarAlt, FaFile, FaLifeRing, FaBullhorn, FaHandHolding, FaHandPaper, FaHandLizard, FaHandshakeSlash, FaRegHandshake, FaPaypal, FaPersonBooth, FaCreditCard } from "react-icons/fa";
+import { FaBuilding, FaHandshake, FaUsers, FaUserPlus, FaFileAlt, FaBriefcase, FaLaptop, FaCalendarAlt, FaFile, FaLifeRing, FaBullhorn, FaHandHolding, FaHandPaper, FaHandLizard, FaHandshakeSlash, FaRegHandshake, FaPaypal, FaPersonBooth, FaCreditCard, FaGraduationCap } from "react-icons/fa";
 import AdminTypography from "../../components/admin/AdminTypography";
 import { ADMIN_FEATURE_VISIBILITY } from "../../utils/adminFeatureVisibility";
 
@@ -31,10 +31,47 @@ const ROOT_ADMIN_MORE_ORDER = [
   'Payroll',
   'Vendors',
   'Bench & Opportunities',
+  'Employee Training Status',
   'Announcements',
   'Calendar',
   'Admin Management',
 ];
+
+const ADMIN_ROLE_MORE_ORDERS = {
+  hr: [
+    'Create Employee',
+    'Employee & Project Details',
+    'Documents',
+    'Payroll',
+    'Vendors',
+    'Bench & Opportunities',
+    'Announcements',
+    'Calendar',
+  ],
+  accounts: [
+    'Documents',
+    'Payroll',
+    'Vendors',
+    'Employee & Project Details',
+    'Announcements',
+    'Calendar',
+  ],
+  recruitment: [
+    'Bench & Opportunities',
+    'Employee & Project Details',
+    'Documents',
+    'Employee Training Status',
+    'Calendar',
+  ],
+};
+
+function orderModules(modulesToOrder, order) {
+  const orderIndex = new Map(order.map((label, index) => [label, index]));
+  return [...modulesToOrder].sort((left, right) => (
+    (orderIndex.get(left.label) ?? Number.MAX_SAFE_INTEGER)
+    - (orderIndex.get(right.label) ?? Number.MAX_SAFE_INTEGER)
+  ));
+}
 
 export default function AdminOptions() {
   const { user } = useAuth();
@@ -43,13 +80,16 @@ export default function AdminOptions() {
   const isRootAdmin = accountType === 'root_admin';
   const isAdmin = isRootAdmin || accountType === "admin";
   const adminRole = String(user?.adminRole || user?.admin_role || '').toLowerCase();
-  const canViewEmployeeAssociations = isRootAdmin || ['hr', 'accounts', 'payroll'].includes(adminRole);
+  const canViewEmployeeAssociations = isRootAdmin || ['hr', 'accounts', 'payroll', 'recruitment'].includes(adminRole);
+  const canViewEmployeeTrainingStatus = isRootAdmin || adminRole === 'recruitment';
   const can = (permission, anyPermissions) => isRootAdmin || !permission && !anyPermissions || user?.permissions?.includes(permission) || anyPermissions?.some(item => user?.permissions?.includes(item));
-  const availableModules = [...modules, ...(canViewEmployeeAssociations ? [{ label: 'Employee & Project Details', icon: <FaUsers />, route: '/admin/employee-associations' }] : []), ...(isRootAdmin ? [{ label: 'Admin Management', icon: <FaUsers />, route: '/admin/admin-management' }] : [])]
+  const availableModules = [...modules, ...(canViewEmployeeAssociations ? [{ label: 'Employee & Project Details', icon: <FaUsers />, route: '/admin/employee-associations' }] : []), ...(canViewEmployeeTrainingStatus ? [{ label: 'Employee Training Status', icon: <FaGraduationCap />, route: '/admin/employee-training-status' }] : []), ...(isRootAdmin ? [{ label: 'Admin Management', icon: <FaUsers />, route: '/admin/admin-management' }] : [])]
     .filter(mod => mod.visible !== false && can(mod.permission, mod.anyPermissions));
   const displayedModules = isRootAdmin
     ? [...availableModules].sort((left, right) => ROOT_ADMIN_MORE_ORDER.indexOf(left.label) - ROOT_ADMIN_MORE_ORDER.indexOf(right.label))
-    : availableModules;
+    : ADMIN_ROLE_MORE_ORDERS[adminRole]
+      ? orderModules(availableModules, ADMIN_ROLE_MORE_ORDERS[adminRole])
+      : availableModules;
 
   if (!isAdmin) {
     return (

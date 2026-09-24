@@ -5,6 +5,7 @@ const CompanySettings = require('../models/companySettings');
 const CompanyJob = require('../models/companyJob');
 const Employee = require('../models/employee');
 const BenchCandidate = require('../models/benchCandidate');
+const { User } = require('../models/user');
 const { Op } = require('sequelize');
 const { accountType } = require('../middleware/authorization');
 const { consumeDeleteApproval, consumeEditApproval } = require('../services/deleteAuthorizationService');
@@ -65,6 +66,53 @@ function formatDob(value) {
         : String(value || '').slice(0, 10);
     const match = dateOnly.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     return match ? `${match[2]}/${match[3]}/${match[1]}` : 'Not Available';
+}
+
+// Bench Candidates are limited to real employee accounts that explicitly set
+// Work Info's "In Project?" value to No. ProfileWork persists that choice as
+// profileStatus = 'On Bench'; null or any other status is intentionally not
+// eligible. Employee rows are connected to User accounts by email, so the
+// positive accountType check also excludes any admin profile rows.
+async function findEligibleBenchEmployee(employeeId) {
+    const employee = await Employee.findOne({
+        where: { employee_id: employeeId, profileStatus: 'On Bench' },
+        attributes: ['employee_id', 'firstName', 'lastName', 'name', 'email', 'presentEmployer', 'visaType', 'presentAddress', 'dob', 'phone'],
+    });
+    if (!employee?.email) return null;
+
+    const employeeAccounts = await User.findAll({ where: { accountType: 'employee' }, attributes: ['email'] });
+    const normalizedEmployeeEmail = String(employee.email).trim().toLowerCase();
+    const hasEmployeeAccount = employeeAccounts.some(account =>
+        String(account.email || '').trim().toLowerCase() === normalizedEmployeeEmail
+    );
+    return hasEmployeeAccount ? employee : null;
+}
+
+async function listEligibleBenchEmployees(query) {
+    const employeeAccounts = await User.findAll({ where: { accountType: 'employee' }, attributes: ['email'] });
+    const employeeEmails = new Set(employeeAccounts
+        .map(account => String(account.email || '').trim().toLowerCase())
+        .filter(Boolean));
+    if (!employeeEmails.size) return [];
+
+    const candidates = await BenchCandidate.findAll({ attributes: ['employee_id'] });
+    const where = {
+        profileStatus: 'On Bench',
+        ...(candidates.length ? { employee_id: { [Op.notIn]: candidates.map(candidate => candidate.employee_id) } } : {}),
+        ...(query ? {
+            [Op.or]: [
+                { firstName: { [Op.iLike]: `%${query}%` } },
+                { lastName: { [Op.iLike]: `%${query}%` } },
+                { name: { [Op.iLike]: `%${query}%` } },
+            ],
+        } : {}),
+    };
+    const employees = await Employee.findAll({
+        where,
+        attributes: ['employee_id', 'firstName', 'lastName', 'name', 'email'],
+        order: [['firstName', 'ASC'], ['lastName', 'ASC'], ['name', 'ASC']],
+    });
+    return employees.filter(employee => employeeEmails.has(String(employee.email || '').trim().toLowerCase()));
 }
 
 function benchCandidateJson(candidate, employee) {
@@ -236,14 +284,7 @@ exports.listBenchCandidates = async (_req, res) => {
 exports.listBenchCandidateEmployees = async (req, res) => {
     try {
         const query = String(req.query.query || '').trim();
-        const where = query ? {
-            [Op.or]: [
-                { firstName: { [Op.iLike]: `%${query}%` } },
-                { lastName: { [Op.iLike]: `%${query}%` } },
-                { name: { [Op.iLike]: `%${query}%` } },
-            ],
-        } : undefined;
-        const employees = await Employee.findAll({ where, attributes: ['employee_id', 'firstName', 'lastName', 'name'], order: [['firstName', 'ASC'], ['lastName', 'ASC'], ['name', 'ASC']] });
+        const employees = await listEligibleBenchEmployees(query);
         res.json({ employees: employees.map(employee => ({ id: employee.employee_id, name: employeeName(employee) })) });
     } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -252,8 +293,8 @@ exports.getBenchCandidateEmployee = async (req, res) => {
     try {
         const employeeId = Number(req.params.employeeId);
         if (!Number.isInteger(employeeId)) return res.status(400).json({ error: 'A valid employee is required' });
-        const employee = await Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name', 'email', 'presentEmployer', 'visaType', 'presentAddress', 'dob', 'phone'] });
-        if (!employee) return res.status(404).json({ error: 'Employee not found' });
+        const employee = await findEligibleBenchEmployee(employeeId);
+        if (!employee) return res.status(404).json({ error: 'Employee is not eligible for Bench Candidates.' });
         res.json({ employee: { id: employee.employee_id, name: employeeName(employee), company: employee.presentEmployer || 'Not Available', visaType: employee.visaType || 'Not Available', location: employeeLocation(employee), dateOfBirth: formatDob(employee.dob), contactNo: employee.phone || 'Not Available' } });
     } catch (err) { res.status(500).json({ error: err.message }); }
 };
@@ -262,8 +303,8 @@ exports.createBenchCandidate = async (req, res) => {
     try {
         const employeeId = Number(req.body?.employeeId);
         if (!Number.isInteger(employeeId)) return res.status(400).json({ error: 'Select an existing employee.' });
-        const employee = await Employee.findByPk(employeeId, { attributes: ['employee_id', 'firstName', 'lastName', 'name', 'email', 'presentEmployer', 'visaType', 'presentAddress', 'dob', 'phone'] });
-        if (!employee) return res.status(404).json({ error: 'Employee not found.' });
+        const employee = await findEligibleBenchEmployee(employeeId);
+        if (!employee) return res.status(400).json({ error: 'Only employee accounts with Work Info set to In Project = No can be added to Bench Candidates.' });
         if (await BenchCandidate.findOne({ where: { employee_id: employeeId } })) return res.status(409).json({ error: 'Employee is already added to Bench Candidates.' });
         const candidate = await BenchCandidate.create({ employee_id: employeeId });
         res.status(201).json({ candidate: benchCandidateJson(candidate, employee) });

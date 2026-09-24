@@ -8,6 +8,7 @@ const WorkClientDetail = require('../models/workClientDetail');
 const Company = require('../models/company');
 const TimesheetEntry = require('../models/timesheetEntry');
 const VendorEmployeeRate = require('../models/vendorEmployeeRate');
+const { User } = require('../models/user');
 const { generateInvoicePdf } = require('../services/invoicePdfService');
 const { getInvoiceTemplate } = require('../config/invoiceTemplates');
 const { normalizeCurrency } = require('../config/currencies');
@@ -22,6 +23,20 @@ const emailPattern = /^\S+@\S+\.\S+$/;
 
 function dateOnly(value) { return value ? String(value).slice(0, 10) : null; }
 function fullName(employee) { return [employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || employee?.name || employee?.email || ''; }
+
+async function invoiceEligibleEmployee(employeeId) {
+  const employee = await Employee.findByPk(employeeId);
+  if (!employee?.email) return null;
+
+  const account = await User.findOne({
+    where: {
+      accountType: 'employee',
+      [Op.and]: [User.sequelize.where(User.sequelize.fn('LOWER', User.sequelize.col('email')), String(employee.email).trim().toLowerCase())],
+    },
+    attributes: ['id'],
+  });
+  return account ? employee : null;
+}
 function normalizeBillingFrequency(value) {
   if (value === undefined || value === null || value === '') return null;
   const frequency = String(value).trim().toLowerCase();
@@ -131,9 +146,19 @@ exports.list = async (req, res) => {
 
 exports.lookups = async (_req, res) => {
   try {
+    // The Employee table may contain profile records for Admin accounts. Use
+    // the authoritative User account type as a positive allow-list so only
+    // real employee accounts are available for invoicing.
+    const employeeAccounts = await User.findAll({ where: { accountType: 'employee' }, attributes: ['email'] });
+    const employeeEmails = employeeAccounts
+      .map(account => String(account.email || '').trim().toLowerCase())
+      .filter(Boolean);
+    const employeeWhere = employeeEmails.length
+      ? { [Op.and]: [Employee.sequelize.where(Employee.sequelize.fn('LOWER', Employee.sequelize.col('email')), { [Op.in]: employeeEmails })] }
+      : { employee_id: { [Op.in]: [] } };
     const [companies, employees, parties] = await Promise.all([
       Company.findAll({ order: [['name', 'ASC']] }),
-      Employee.findAll({ attributes: ['employee_id', 'name', 'firstName', 'lastName', 'email', 'clientName'], order: [['firstName', 'ASC']] }),
+      Employee.findAll({ where: employeeWhere, attributes: ['employee_id', 'name', 'firstName', 'lastName', 'email', 'clientName'], order: [['firstName', 'ASC']] }),
       WorkClientDetail.findAll({ where: { employee_id: null, type: { [Op.in]: ['client', 'vendor', 'primeVendor'] } }, order: [['name', 'ASC']] }),
     ]);
     const formatParty = row => ({ id: row.id, name: row.name, type: row.type, address: row.address || '', billingContactName: row.meta?.billingContactName || '', billingEmail: row.meta?.billingEmail || row.email || '', billingAddress: row.meta?.billingAddress || row.address || '', paymentTerms: row.meta?.paymentTerms || 'Net 30', customNetDays: row.meta?.customNetDays || null, currency: row.meta?.currency || 'USD', clientName: row.client_name || '', vendorName: row.vendor_name || '', primeVendorName: row.prime_vendor_name || '' });
@@ -179,7 +204,7 @@ exports.vendorsForEmployee = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     const items = validate(req.body, req.body.items);
-    const employee = await Employee.findByPk(req.body.employeeId);
+    const employee = await invoiceEligibleEmployee(req.body.employeeId);
     const company = await Company.findByPk(req.body.companyId);
     if (!employee || !company) return res.status(400).json({ error: 'Selected employee or company was not found' });
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
@@ -209,8 +234,9 @@ exports.update = async (req, res) => {
   try {
     const result = await getInvoice(req.params.id); if (!result) return res.status(404).json({ error: 'Invoice not found' });
     const items = validate(req.body, req.body.items);
+    const employee = await invoiceEligibleEmployee(req.body.employeeId);
     const company = await Company.findByPk(req.body.companyId);
-    if (!company) return res.status(400).json({ error: 'Selected company was not found' });
+    if (!employee || !company) return res.status(400).json({ error: 'Selected employee or company was not found' });
     const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
     const paymentsApplied = result.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     if (subtotal + 0.00001 < paymentsApplied) return res.status(400).json({ error: 'Invoice total cannot be less than payments already applied.' });

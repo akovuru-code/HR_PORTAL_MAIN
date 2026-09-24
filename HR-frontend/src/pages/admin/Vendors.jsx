@@ -1,12 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
 import { confirmOrRequestDelete, requestOrUseAdminAction } from '../../utils/adminDeleteRequest';
-
-const getLoggedInUser = () => {
-    const stored = localStorage.getItem("user");
-    const user = stored ? JSON.parse(stored) : null;
-    return { fullName: user?.name || "Unknown User" };
-};
+import { useAuth } from '../../hooks/useAuth';
 
 const authHeaders = () => {
     const token = localStorage.getItem("token");
@@ -187,11 +182,7 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
             const end = new Date(form.endDate);
             if (end < today) status = "Inactive";
         }
-        const user = getLoggedInUser();
-        const userMeta = isEdit
-            ? { updatedBy: user.fullName }
-            : { createdBy: user.fullName };
-        onSave({ ...form, employeeRates, status, ...userMeta });
+        onSave({ ...form, employeeRates, status });
     }
 
     if (!open) return null;
@@ -462,20 +453,15 @@ function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
 }
 
 export default function AdminVendors() {
+    const { user } = useAuth();
+    const isHrVendorReadOnly = String(user?.accountType || user?.account_type || user?.role || '').toLowerCase() === 'admin'
+        && String(user?.adminRole || user?.admin_role || '').toLowerCase() === 'hr';
     const [vendors, setVendors] = useState([]);
 
     useEffect(() => {
         fetch("/api/admin/vendors", { headers: authHeaders() })
             .then(r => r.json())
             .then(d => setVendors(d.vendors || []))
-            .catch(() => { });
-    }, []);
-
-    const [allEmployees, setAllEmployees] = useState([]);
-    useEffect(() => {
-        fetch("/api/admin/employees", { headers: authHeaders() })
-            .then(r => r.json())
-            .then(d => setAllEmployees((d.employees || []).filter((emp) => !emp.terminateDate)))
             .catch(() => { });
     }, []);
 
@@ -490,42 +476,6 @@ export default function AdminVendors() {
                 if (updated) setViewDetails(updated);
             }
         } catch { /* ignore */ }
-    }
-
-    async function handleAssignEmployee(vendor, employeeId) {
-        try {
-            const res = await fetch(`/api/admin/vendors/${vendor.id}/assign-employee`, {
-                method: "POST",
-                headers: authHeaders(),
-                body: JSON.stringify({ employeeId }),
-            });
-            const data = await res.json();
-            if (res.ok) {
-                await refreshVendors(vendor.id);
-            } else {
-                alert(data.error || "Failed to assign employee.");
-            }
-        } catch {
-            alert("Failed to assign employee.");
-        }
-    }
-
-    async function handleUnassignEmployee(vendor, employeeId) {
-        if (!window.confirm("Remove this employee from the list?")) return;
-        try {
-            const res = await fetch(`/api/admin/vendors/${vendor.id}/assign-employee/${employeeId}`, {
-                method: "DELETE",
-                headers: authHeaders(),
-            });
-            const data = await res.json();
-            if (res.ok) {
-                await refreshVendors(vendor.id);
-            } else {
-                alert(data.error || "Failed to remove employee.");
-            }
-        } catch {
-            alert("Failed to remove employee.");
-        }
     }
 
     const [search, setSearch] = useState("");
@@ -617,7 +567,7 @@ export default function AdminVendors() {
                 });
                 const data = await res.json();
                 if (res.ok && data.vendor) {
-                    setVendors((prev) => prev.map((v) => (v.id === editVendor.id ? { ...data.vendor, employees: editVendor.employees } : v)));
+                    await refreshVendors(editVendor.id);
                 } else {
                     alert(data.error || "Failed to update vendor.");
                 }
@@ -633,7 +583,7 @@ export default function AdminVendors() {
                 });
                 const data = await res.json();
                 if (res.ok && data.vendor) {
-                    setVendors((prev) => [...prev, data.vendor]);
+                    await refreshVendors(data.vendor.id);
                 } else {
                     setVendors((prev) => [...prev, { ...vendor, id: Date.now(), createdBy: vendor.createdBy, employees: [] }]);
                 }
@@ -714,13 +664,15 @@ export default function AdminVendors() {
                             </div>
                         )}
                     </div>
-                    <AdminTypography.button
-                        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                        onClick={handleAdd}
-                        aria-label="Add vendor"
-                    >
-                        + Vendor
-                    </AdminTypography.button>
+                    {!isHrVendorReadOnly && (
+                        <AdminTypography.button
+                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                            onClick={handleAdd}
+                            aria-label="Add vendor"
+                        >
+                            + Vendor
+                        </AdminTypography.button>
+                    )}
                 </div>
             </div>
             <div className="overflow-x-auto bg-white border rounded-xl shadow-sm">
@@ -733,14 +685,14 @@ export default function AdminVendors() {
                             <th className="px-4 py-2 text-left">End Date</th>
                             <th className="px-4 py-2 text-left">Client</th>
                             <th className="px-4 py-2 text-left">Prime Vendor</th>
-                            <th className="px-4 py-2 text-center">Actions</th>
+                            {!isHrVendorReadOnly && <th className="px-4 py-2 text-center">Actions</th>}
                             <th className="px-4 py-2 text-left">View Details</th>
                         </tr>
                     </thead>
                     <tbody>
                         {filteredVendors.length === 0 ? (
                             <tr>
-                                <td colSpan={8} className="text-center py-8 text-gray-400">No vendors found.</td>
+                                <td colSpan={isHrVendorReadOnly ? 7 : 8} className="text-center py-8 text-gray-400">No vendors found.</td>
                             </tr>
                         ) : (
                             filteredVendors.map((vendor) => {
@@ -758,22 +710,24 @@ export default function AdminVendors() {
                                         <td className="px-4 py-2">{vendor.endDate}</td>
                                         <td className="px-4 py-2">{vendor.client?.enabled ? vendor.client.name : "-"}</td>
                                         <td className="px-4 py-2">{vendor.primeVendor?.enabled ? vendor.primeVendor.name : "-"}</td>
-                                        <td className="px-4 py-2 flex justify-center gap-2">
-                                            <AdminTypography.button
-                                                className="px-2 py-1 text-sm bg-yellow-100 text-blue-800 rounded hover:bg-yellow-200"
-                                                onClick={() => handleEdit(vendor)}
-                                                aria-label={`Edit ${vendor.name}`}
-                                            >
-                                                ✎
-                                            </AdminTypography.button>
-                                            <AdminTypography.button
-                                                className="px-2 py-1 text-sm bg-red-100 text-red-800 rounded hover:bg-red-200"
-                                                onClick={() => handleDelete(vendor)}
-                                                aria-label={`Delete ${vendor.name}`}
-                                            >
-                                                🗑️
-                                            </AdminTypography.button>
-                                        </td>
+                                        {!isHrVendorReadOnly && (
+                                            <td className="px-4 py-2 flex justify-center gap-2">
+                                                <AdminTypography.button
+                                                    className="px-2 py-1 text-sm bg-yellow-100 text-blue-800 rounded hover:bg-yellow-200"
+                                                    onClick={() => handleEdit(vendor)}
+                                                    aria-label={`Edit ${vendor.name}`}
+                                                >
+                                                    ✎
+                                                </AdminTypography.button>
+                                                <AdminTypography.button
+                                                    className="px-2 py-1 text-sm bg-red-100 text-red-800 rounded hover:bg-red-200"
+                                                    onClick={() => handleDelete(vendor)}
+                                                    aria-label={`Delete ${vendor.name}`}
+                                                >
+                                                    🗑️
+                                                </AdminTypography.button>
+                                            </td>
+                                        )}
                                         <td className="px-4 py-2">
                                             <AdminTypography.button
                                                 className="px-3 py-1 bg-gray-100 text-blue-700 rounded hover:bg-blue-100 border border-blue-200"
@@ -805,7 +759,11 @@ export default function AdminVendors() {
 
     // View Details Modal
     function ViewDetailsModal({ vendor, onClose }) {
-        const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+        const currencyLabels = {
+            USD: 'USD — US Dollar',
+            INR: 'INR — Indian Rupee',
+            CAD: 'CAD — Canadian Dollar',
+        };
         let displayStatus = vendor.status;
         if (vendor.endDate) {
             const today = new Date();
@@ -861,6 +819,36 @@ export default function AdminVendors() {
                                 </div>
                             </div>
                         </section>
+                        {/* Billing Info */}
+                        <section>
+                            <AdminTypography.h3 className="mb-2 text-blue-700">Billing Information</AdminTypography.h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <AdminTypography.label>Billing Contact Name</AdminTypography.label>
+                                    <AdminTypography.p className="text-gray-900">{vendor.billingContactName || '—'}</AdminTypography.p>
+                                </div>
+                                <div>
+                                    <AdminTypography.label>Billing Email</AdminTypography.label>
+                                    <AdminTypography.p className="text-gray-900">{vendor.billingEmail || '—'}</AdminTypography.p>
+                                </div>
+                                <div>
+                                    <AdminTypography.label>Contact Number</AdminTypography.label>
+                                    <AdminTypography.p className="text-gray-900">{vendor.contact || '—'}</AdminTypography.p>
+                                </div>
+                                <div>
+                                    <AdminTypography.label>Payment Terms</AdminTypography.label>
+                                    <AdminTypography.p className="text-gray-900">{vendor.paymentTerms || '—'}</AdminTypography.p>
+                                </div>
+                                <div>
+                                    <AdminTypography.label>Currency</AdminTypography.label>
+                                    <AdminTypography.p className="text-gray-900">{currencyLabels[vendor.currency] || vendor.currency || '—'}</AdminTypography.p>
+                                </div>
+                                <div className="md:col-span-2">
+                                    <AdminTypography.label>Billing Address</AdminTypography.label>
+                                    <AdminTypography.p className="text-gray-900 whitespace-pre-wrap">{vendor.billingAddress || '—'}</AdminTypography.p>
+                                </div>
+                            </div>
+                        </section>
                         {/* Client Info */}
                         {vendor.client?.enabled && (
                             <section>
@@ -906,20 +894,11 @@ export default function AdminVendors() {
                             <AdminTypography.h3 className="mb-2 text-blue-700">Employees Working with this Vendor</AdminTypography.h3>
                             {vendor.employees && vendor.employees.length > 0 ? (
                                 <div className="max-h-48 overflow-y-auto border border-gray-100 rounded p-2 mb-3">
-                                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                                         {vendor.employees.map((emp) => (
-                                            <li key={emp.employeeId} className="text-gray-900 truncate flex items-center gap-2">
-                                                <span>• {emp.name}</span>
-                                                {emp.removable && (
-                                                    <button
-                                                        type="button"
-                                                        className="text-red-500 hover:text-red-700 text-xs"
-                                                        onClick={() => handleUnassignEmployee(vendor, emp.employeeId)}
-                                                        aria-label={`Remove ${emp.name}`}
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                )}
+                                            <li key={emp.employeeId} className="text-gray-900 flex items-center justify-between gap-3">
+                                                <span className="truncate">• {emp.name}</span>
+                                                <span className="whitespace-nowrap text-gray-700">{emp.rate === undefined || emp.rate === null ? '—' : new Intl.NumberFormat(vendor.currency === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency: vendor.currency || 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(emp.rate))}/hour</span>
                                             </li>
                                         ))}
                                     </ul>
@@ -927,32 +906,6 @@ export default function AdminVendors() {
                             ) : (
                                 <AdminTypography.p className="text-gray-500 mb-3">No employees found.</AdminTypography.p>
                             )}
-                            <div className="flex gap-2 items-center">
-                                <select
-                                    className="border border-gray-300 rounded px-2 py-1 text-sm flex-1"
-                                    value={selectedEmployeeId}
-                                    onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                                    aria-label="Select employee to assign"
-                                >
-                                    <option value="">Select employee to add...</option>
-                                    {allEmployees
-                                        .filter((emp) => !(vendor.employees || []).some((e) => e.employeeId === emp.id))
-                                        .map((emp) => (
-                                            <option key={emp.id} value={emp.id}>{emp.name}</option>
-                                        ))}
-                                </select>
-                                <AdminTypography.button
-                                    type="button"
-                                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm disabled:opacity-50"
-                                    disabled={!selectedEmployeeId}
-                                    onClick={() => {
-                                        handleAssignEmployee(vendor, selectedEmployeeId);
-                                        setSelectedEmployeeId("");
-                                    }}
-                                >
-                                    Add
-                                </AdminTypography.button>
-                            </div>
                         </section>
                         {/* User Info */}
                         <section>

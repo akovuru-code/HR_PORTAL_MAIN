@@ -423,6 +423,7 @@ export default function ProfileWork() {
 
   const {
     canEdit,
+    adminCanEditEmployee,
     onboardingSubmitted,
     canEditDocuments,
     handleSubmit,
@@ -436,7 +437,8 @@ export default function ProfileWork() {
     pageKey,
     "profileWork"
   );
-  const areDocumentsReadOnly = !canEditDocuments;
+  const isViewOnlyAdmin = Boolean(targetEmployeeId) && !adminCanEditEmployee;
+  const areDocumentsReadOnly = isViewOnlyAdmin || !canEditDocuments;
 
   /*
    * ============================================================
@@ -1164,18 +1166,20 @@ export default function ProfileWork() {
       activeEmployerDetails?.detailType ===
       detailType
     ) {
-      try {
-        await workClientRef.current?.saveDraft?.();
-      } catch (err) {
-        console.error(
-          "Unable to save employer details before closing:",
-          err?.response?.data || err?.message || err
-        );
-        alert(
-          "Unable to save details: " +
-          (err?.response?.data?.error || err?.message || "unknown error")
-        );
-        return;
+      if (!isViewOnlyAdmin) {
+        try {
+          await workClientRef.current?.saveDraft?.();
+        } catch (err) {
+          console.error(
+            "Unable to save employer details before closing:",
+            err?.response?.data || err?.message || err
+          );
+          alert(
+            "Unable to save details: " +
+            (err?.response?.data?.error || err?.message || "unknown error")
+          );
+          return;
+        }
       }
 
       setActiveEmployerDetails(
@@ -1189,7 +1193,7 @@ export default function ProfileWork() {
      * complete employer-specific draft before switching to another section
      * or employer so unmounting cannot discard detailed fields/documents.
      */
-    if (activeEmployerDetails) {
+    if (activeEmployerDetails && !isViewOnlyAdmin) {
       try {
         await workClientRef.current?.saveDraft?.();
       } catch (err) {
@@ -1420,9 +1424,9 @@ export default function ProfileWork() {
    */
 
   const isReadOnly =
-    onboardingSubmitted &&
-    !canEdit;
-  const canSaveOrSubmit = !onboardingSubmitted || canEdit || canEditDocuments;
+    isViewOnlyAdmin ||
+    (onboardingSubmitted && !canEdit);
+  const canSaveOrSubmit = !isViewOnlyAdmin && (!onboardingSubmitted || canEdit || canEditDocuments);
 
   /*
    * ============================================================
@@ -2525,7 +2529,7 @@ export default function ProfileWork() {
             </EmpTypography.button>
           )}
 
-        {onboardingSubmitted &&
+        {!isViewOnlyAdmin && onboardingSubmitted &&
           !canEditDocuments &&
           !permissionGranted && (
             <EmpTypography.button

@@ -26,28 +26,35 @@ function EmployerDocumentUpload({ employeeId, category, documentName, documentFi
   const ownKey = isAdmin ? 'admin' : 'employee';
   return (
     <>
-      <FileUploadField
-        label="Document Upload:"
-        value={files[ownKey]}
-        onChange={file => {
-          onChange({ ...files, [ownKey]: file });
-          if (file?.url) {
-            registerDocument({
-              employeeId,
-              name: documentName,
-              url: file.url,
-              filename: file.filename,
-              originalName: file.originalName,
-              document_type: category,
-              fileData: file,
-            }).catch(() => {});
-          }
-        }}
-        employeeId={employeeId}
-        category={category}
-        documentName={documentName}
-        disabled={disabled}
-      />
+      {disabled && !files[ownKey]?.url ? (
+        <div>
+          <label className="block text-sm font-medium">Document Upload:</label>
+          <p className="border rounded px-3 py-2 text-sm text-gray-500 bg-gray-100">No document uploaded</p>
+        </div>
+      ) : (
+        <FileUploadField
+          label="Document Upload:"
+          value={files[ownKey]}
+          onChange={file => {
+            onChange({ ...files, [ownKey]: file });
+            if (file?.url) {
+              registerDocument({
+                employeeId,
+                name: documentName,
+                url: file.url,
+                filename: file.filename,
+                originalName: file.originalName,
+                document_type: category,
+                fileData: file,
+              }).catch(() => {});
+            }
+          }}
+          employeeId={employeeId}
+          category={category}
+          documentName={documentName}
+          disabled={disabled}
+        />
+      )}
       {isAdmin && files.employee?.url && (
         <div className="mt-2">
           <FileUploadField
@@ -172,6 +179,7 @@ const WorkClient = forwardRef(function WorkClient({
   });
 
   const persistDraft = async () => {
+    if (isViewOnlyAdmin) return;
     const employeeId = targetEmployeeId || user?.employeeId || user?.id;
     if (!employeeId) {
       throw new Error("Missing employeeId in session");
@@ -188,6 +196,10 @@ const WorkClient = forwardRef(function WorkClient({
 
   // Auto-save when clicking Back
   const handleBack = async () => {
+    if (isViewOnlyAdmin) {
+      if (typeof goBack === 'function') goBack();
+      return;
+    }
     try {
       await persistDraft();
       if (typeof goBack === 'function') goBack();
@@ -199,9 +211,10 @@ const WorkClient = forwardRef(function WorkClient({
 
   const { user, accountType } = useAuth();
   const { targetEmployeeId } = useAdminView() || {};
-  const { canEdit, onboardingSubmitted, canEditDocuments } = useOnboardingPermissions('canEdit_profilework', 'profileWork');
-  const isReadOnly = onboardingSubmitted && !canEdit;
-  const areDocumentsReadOnly = documentsReadOnly ?? !canEditDocuments;
+  const { canEdit, adminCanEditEmployee, onboardingSubmitted, canEditDocuments } = useOnboardingPermissions('canEdit_profilework', 'profileWork');
+  const isViewOnlyAdmin = Boolean(targetEmployeeId) && !adminCanEditEmployee;
+  const isReadOnly = isViewOnlyAdmin || (onboardingSubmitted && !canEdit);
+  const areDocumentsReadOnly = isViewOnlyAdmin || documentsReadOnly || !canEditDocuments;
   const isAdminViewer = ['admin', 'root_admin', 'hr'].includes(String(accountType || user?.role || '').toLowerCase());
 
   useEffect(() => {
@@ -540,15 +553,14 @@ const WorkClient = forwardRef(function WorkClient({
                   />
                   
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <EmpTypography.button variant="primary" onClick={() => handleAdd("client")} disabled={isReadOnly}>+ Add</EmpTypography.button>
+                {!isReadOnly && <div className="flex justify-between items-center mt-2">
+                  <EmpTypography.button variant="primary" onClick={() => handleAdd("client")}>+ Add</EmpTypography.button>
                   {clientInfo.length > 1 && (
                     <button type="button" className="text-red-600 px-2 py-1 rounded hover:bg-red-100 disabled:opacity-50" onClick={() =>
                       setClientInfo(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
-                      disabled={isReadOnly}
                     >🗑️</button>
                   )}
-                </div>
+                </div>}
               </div>
             </div>
           ))}
@@ -634,15 +646,14 @@ const WorkClient = forwardRef(function WorkClient({
                     note="Vendor letter and appreciation documents needed."
                   />
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <EmpTypography.button variant="primary" onClick={() => handleAdd("vendor")} disabled={isReadOnly}>+ Add</EmpTypography.button>
+                {!isReadOnly && <div className="flex justify-between items-center mt-2">
+                  <EmpTypography.button variant="primary" onClick={() => handleAdd("vendor")}>+ Add</EmpTypography.button>
                   {vendorInfo.length > 1 && (
                     <button type="button" className="text-red-600 px-2 py-1 rounded hover:bg-red-100 disabled:opacity-50" onClick={() =>
                       setVendorInfo(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
-                      disabled={isReadOnly}
                     >🗑️</button>
                   )}
-                </div>
+                </div>}
               </div>
             </div>
           ))}
@@ -751,15 +762,14 @@ const WorkClient = forwardRef(function WorkClient({
                     note="Prime Vendor letter and appreciation documents needed."
                   />
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <EmpTypography.button variant="primary" onClick={() => handleAdd("prime")} disabled={isReadOnly}>+ Add</EmpTypography.button>
+                {!isReadOnly && <div className="flex justify-between items-center mt-2">
+                  <EmpTypography.button variant="primary" onClick={() => handleAdd("prime")}>+ Add</EmpTypography.button>
                   {primeInfo.length > 1 && (
                     <button type="button" className="text-red-600 px-2 py-1 rounded hover:bg-red-100 disabled:opacity-50" onClick={() =>
                       setPrimeInfo(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
-                      disabled={isReadOnly}
                     >🗑️</button>
                   )}
-                </div>
+                </div>}
               </div>
             </div>
           ))}
