@@ -13,7 +13,7 @@ const { generateInvoicePdf } = require('../services/invoicePdfService');
 const { getInvoiceTemplate } = require('../config/invoiceTemplates');
 const { normalizeCurrency } = require('../config/currencies');
 const { automaticInvoiceDescription, isAutomaticInvoiceDescription } = require('../utils/invoicePeriod');
-const { getInvoiceOverdueState, overdueLabel } = require('../utils/invoiceOverdue');
+const { getInvoiceOverdueState, getInvoiceDueState, overdueLabel } = require('../utils/invoiceOverdue');
 const { consumeEditApproval } = require('../services/deleteAuthorizationService');
 
 const TERMS = { 'Net 15': 15, 'Net 30': 30, 'Net 45': 45, 'Net 60': 60, Custom: null };
@@ -58,6 +58,7 @@ function invoiceJson(invoice, items = [], payments = []) {
   const paymentsApplied = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const value = invoice.toJSON();
   const overdue = getInvoiceOverdueState(value);
+  const due = getInvoiceDueState(value);
   return {
     ...value,
     billingFrequency: billingFrequencyFor(invoice),
@@ -66,7 +67,8 @@ function invoiceJson(invoice, items = [], payments = []) {
     payments: payments.map(paymentJson),
     pdfUrl: invoice.pdfPath ? `/api/invoices/records/${invoice.id}/pdf` : (invoice.url || null),
     ...overdue,
-    displayStatus: overdue.isOverdue ? overdueLabel(overdue.daysOverdue) : value.status,
+    ...due,
+    displayStatus: overdue.isOverdue ? overdueLabel(overdue.daysOverdue) : due.isDue ? 'Due' : value.status,
   };
 }
 function invoiceUpdateValues(body, subtotal, existing, company) {

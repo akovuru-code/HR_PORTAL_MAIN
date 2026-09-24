@@ -1,7 +1,7 @@
 const express = require('express');
 const { Op } = require('sequelize');
 const authenticateToken = require('../middleware/auth');
-const { requirePermission } = require('../middleware/authorization');
+const { requirePermission, accountType } = require('../middleware/authorization');
 const sequelize = require('../models/db');
 const Invoice = require('../models/invoice');
 const Payment = require('../models/payment');
@@ -93,8 +93,9 @@ router.post('/', async (req, res) => {
   if (!date) errors.date = 'Date is required.';
   if (!Number.isInteger(Number(vendorId))) errors.vendorId = 'Vendor is required.';
   if (!normalizedCurrency) errors.currency = 'Currency is required.';
-  const isAccountsAdmin = String(req.user?.adminRole || '').toLowerCase() === 'accounts';
-  if (!isAccountsAdmin && !String(referenceNumber || '').trim()) errors.referenceNumber = 'Reference Number is required.';
+  const isRootAdmin = accountType(req.user) === 'root_admin';
+  const isAccountsAdmin = String(req.user?.adminRole || req.user?.admin_role || '').toLowerCase() === 'accounts';
+  if (!isRootAdmin && !isAccountsAdmin && !String(referenceNumber || '').trim()) errors.referenceNumber = 'Reference Number is required.';
   if (!String(paymentMethod || '').trim()) errors.paymentMethod = 'Payment Method is required.';
 
   const allocationsByInvoice = new Map();
@@ -149,7 +150,7 @@ router.post('/', async (req, res) => {
         // These legacy fields remain populated for compatibility with existing exports.
         invoice_id: invoices.length === 1 ? invoices[0].id : null,
         invoice: invoices.map(invoice => invoice.invoiceNumber || String(invoice.id)).join(', '),
-        referenceNumber: String(referenceNumber || '').trim(),
+        referenceNumber: String(referenceNumber || '').trim() || null,
         paymentMethod: String(paymentMethod).trim(),
         amount: Number(totalAmount.toFixed(2)),
         createdBy: req.user?.name || req.user?.email || String(req.user?.id || ''),

@@ -18,7 +18,7 @@ const Payment = sequelize.define('Payment', {
     onUpdate: 'CASCADE',
   },
   invoice: { type: DataTypes.STRING, allowNull: false },
-  referenceNumber: { type: DataTypes.STRING, allowNull: false },
+  referenceNumber: { type: DataTypes.STRING, allowNull: true },
   paymentMethod: { type: DataTypes.STRING, allowNull: false },
   amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
   createdBy: DataTypes.STRING,

@@ -41,7 +41,7 @@ const ADMIN_ROLE_MORE_ORDERS = {
   hr: [
     'Create Employee',
     'Employee & Project Details',
-    'Documents',
+    'Company Documents',
     'Payroll',
     'Vendors',
     'Bench & Opportunities',
@@ -49,7 +49,7 @@ const ADMIN_ROLE_MORE_ORDERS = {
     'Calendar',
   ],
   accounts: [
-    'Documents',
+    'Company Documents',
     'Payroll',
     'Vendors',
     'Employee & Project Details',
@@ -59,7 +59,7 @@ const ADMIN_ROLE_MORE_ORDERS = {
   recruitment: [
     'Bench & Opportunities',
     'Employee & Project Details',
-    'Documents',
+    'Company Documents',
     'Employee Training Status',
     'Calendar',
   ],

@@ -26,8 +26,20 @@ function getInvoiceOverdueState(invoice, today = new Date()) {
   return { isOverdue: daysOverdue > 0, daysOverdue: daysOverdue > 0 ? daysOverdue : 0 };
 }
 
+function getInvoiceDueState(invoice, today = new Date()) {
+  const dueDate = parseDateOnlyLocal(invoice?.dueDate);
+  const balanceDue = Number(invoice?.balanceDue || 0);
+  const isClosed = CLOSED_STATUSES.has(String(invoice?.status || '').trim().toLowerCase());
+
+  if (!dueDate || !Number.isFinite(balanceDue) || balanceDue <= 0 || isClosed) {
+    return { isDue: false };
+  }
+
+  return { isDue: dueDate.getTime() >= localStartOfDay(today).getTime() };
+}
+
 function overdueLabel(daysOverdue) {
   return `Overdue (${daysOverdue} ${daysOverdue === 1 ? 'day' : 'days'})`;
 }
 
-module.exports = { getInvoiceOverdueState, overdueLabel };
+module.exports = { getInvoiceOverdueState, getInvoiceDueState, overdueLabel };
