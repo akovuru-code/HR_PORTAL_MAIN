@@ -8,7 +8,7 @@ import { ADMIN_FEATURE_VISIBILITY } from "../../utils/adminFeatureVisibility";
 
 const modules = [
   { label: "Bench & Opportunities", icon: <FaPersonBooth />, route: "/admin/recruiting", anyPermissions: ["recruiting:manage", "recruiting:view"] },
-  { label: "Documents", icon: <FaFileAlt />, route: "/admin/documents", permission: "documents:manage" },
+  { label: "Company Documents", icon: <FaFileAlt />, route: "/admin/documents", permission: "documents:manage" },
   { label: "Create Employee", icon: <FaUserPlus />, route: "/admin/register", permission: "employee:create" },
   { label: "Clients", icon: <FaUsers />, route: "/admin/clients", permission: "operations:manage", visible: false },
   { label: "Vendors", icon: <FaHandshake />, route: "/admin/vendors", permission: "operations:manage" },
@@ -27,7 +27,7 @@ const modules = [
 const ROOT_ADMIN_MORE_ORDER = [
   'Create Employee',
   'Employee & Project Details',
-  'Documents',
+  'Company Documents',
   'Payroll',
   'Vendors',
   'Bench & Opportunities',

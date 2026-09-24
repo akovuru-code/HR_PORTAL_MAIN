@@ -51,6 +51,24 @@ function isAdmin(user) {
     return ['admin', 'root_admin', 'hr'].includes(role);
 }
 
+function isRecruitingAdmin(user) {
+    return String(user?.accountType || user?.role || '').toLowerCase() === 'admin' &&
+        String(user?.adminRole || user?.admin_role || '').toLowerCase() === 'recruitment';
+}
+
+function hideWorkInfoDocuments(value) {
+    if (Array.isArray(value)) return value.map(hideWorkInfoDocuments);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+        key,
+        /^(docFile|docFiles)$/i.test(key) ? null : hideWorkInfoDocuments(item),
+    ]));
+}
+
+function isWorkInfoDocument(document) {
+    return /^(work_|present_employer_|previous_employer_)/i.test(String(document?.document_type || ''));
+}
+
 function isSubmittedTab(value) {
     return value === true || (value && typeof value === 'object' && value.submitted === true);
 }
@@ -104,12 +122,21 @@ exports.getOnboarding = async (req, res) => {
         // Build draft map by tab for backward compat
         const draftMap = {};
         for (const d of drafts) draftMap[d.tab] = d;
-        const visibleWorkClientDetails = isAdmin(req.user) ? workClientDetails : workClientDetails.map(row => ({
+        const visibleWorkClientDetails = isAdmin(req.user) && !isRecruitingAdmin(req.user) ? workClientDetails : workClientDetails.map(row => ({
             ...row.toJSON(),
-            doc_file: visibleDocumentFiles(row.doc_file, req.user, id),
+            doc_file: isRecruitingAdmin(req.user) ? null : visibleDocumentFiles(row.doc_file, req.user, id),
         }));
         if (isAdmin(req.user)) {
-            return res.json({ employee, draft: draftMap['personal'] || null, drafts: draftMap, roleSections, educations, evaluations, workEmployers, workClientDetails: visibleWorkClientDetails });
+            const employeeForViewer = isRecruitingAdmin(req.user) && employee
+                ? { ...employee.toJSON(), Documents: (employee.Documents || []).filter(document => !isWorkInfoDocument(document)) }
+                : employee;
+            const draftsForViewer = isRecruitingAdmin(req.user)
+                ? Object.fromEntries(Object.entries(draftMap).map(([tab, draft]) => [tab, /^(profileWork|workClient)(?:-|$)/.test(tab) ? { ...draft.toJSON(), data: hideWorkInfoDocuments(draft.data) } : draft]))
+                : draftMap;
+            const workEmployersForViewer = isRecruitingAdmin(req.user)
+                ? workEmployers.map(row => ({ ...row.toJSON(), doc_file: null }))
+                : workEmployers;
+            return res.json({ employee: employeeForViewer, draft: draftsForViewer.personal || null, drafts: draftsForViewer, roleSections, educations, evaluations, workEmployers: workEmployersForViewer, workClientDetails: visibleWorkClientDetails });
         }
         const visibleEmployee = employee ? employee.toJSON() : employee;
         if (visibleEmployee?.Documents) {
@@ -646,12 +673,12 @@ exports.getDraft = async (req, res) => {
                     : draft.data;
                 return res.json({ draft: { ...draft.toJSON(), data: hideAdminUploadedFiles(data) } });
             }
-            return res.json({ draft });
+            return res.json({ draft: isRecruitingAdmin(req.user) && /^(profileWork|workClient)(?:-|$)/.test(tab) ? { ...draft.toJSON(), data: hideWorkInfoDocuments(draft.data) } : draft });
         }
         // Return all drafts for this employee
         const drafts = await OnboardingDraft.findAll({ where: { employeeId: id } });
         if (!drafts.length) return res.status(404).json({ error: 'Draft not found' });
-        res.json({ drafts: !isAdmin(req.user) ? drafts.map(draft => {
+        res.json({ drafts: isRecruitingAdmin(req.user) ? drafts.map(draft => /^(profileWork|workClient)(?:-|$)/.test(draft.tab) ? { ...draft.toJSON(), data: hideWorkInfoDocuments(draft.data) } : draft) : !isAdmin(req.user) ? drafts.map(draft => {
             const data = /^workClient(?:-|$)/.test(draft.tab)
                 ? mapDraftDocuments(draft.data, value => visibleDocumentFiles(value, req.user, id))
                 : draft.data;

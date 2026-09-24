@@ -181,6 +181,7 @@ function InvoiceModal({ open, onClose, onSave, initialData, isEdit, defaultEmplo
               >
                 <option value="Generated">Generated</option>
                 <option value="Pending">Pending</option>
+                <option value="Due">Due</option>
                 <option value="Paid">Paid</option>
                 <option value="Cancelled">Cancelled</option>
               </select>

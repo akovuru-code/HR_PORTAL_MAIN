@@ -18,12 +18,12 @@ api.interceptors.request.use((config) => {
 });
 
 
-function VisaDocumentsCard({ visaType, employeeId, i9File, setI9File, w4File, setW4File, disabled, personLabel = 'Employee', categoryPrefix = 'employee' }) {
-  if (visaType !== 'H1B' && visaType !== 'F1') return null;
+function VisaDocumentsCard({ visaType, requireForNationality = false, employeeId, i9File, setI9File, w4File, setW4File, disabled, personLabel = 'Employee', categoryPrefix = 'employee' }) {
+  if (!requireForNationality && visaType !== 'H1B' && visaType !== 'F1') return null;
 
   const visaLabel = visaType === 'H1B' ? 'H-1B' : 'F-1';
   return <section className="rounded-2xl border-2 border-blue-200 bg-blue-50 shadow-sm p-6 mb-6">
-    <EmpTypography.h2 className="mb-2">{personLabel === 'Employee' ? 'Required' : `${personLabel} Required`} Documents for {visaLabel}</EmpTypography.h2>
+    <EmpTypography.h2 className="mb-2">{personLabel === 'Employee' ? 'Required' : `${personLabel} Required`} Documents{requireForNationality && visaType !== 'H1B' && visaType !== 'F1' ? '' : ` for ${visaLabel}`}</EmpTypography.h2>
     <EmpTypography.small className="block mb-5">Complete and upload both required documents.</EmpTypography.small>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="rounded-xl border bg-white p-4 space-y-3">
@@ -56,8 +56,10 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
   spouseW4File,
   setSpouseW4File,
   spouseVisaType,
+  nationality,
   kids = [],
   setKidDocument,
+  insuranceMode = 'visible',
 }, ref) {
   EmpTypography._log && EmpTypography._log();
   const pageKey = 'canEdit_onboarddocs';
@@ -96,12 +98,13 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
   const [insuranceRows, setInsuranceRows] = useState([
     { name: "Employee", coverage: { medical: false, vision: false, dental: false } }
   ]);
+  const [insuranceSelected, setInsuranceSelected] = useState('');
 
   const [nameOptions, setNameOptions] = useState(["Employee"]);
   const [selectedPerson, setSelectedPerson] = useState('employee');
 
   const people = useMemo(() => [
-    { id: 'employee', label: 'Employee', visaType, i9File, setI9File, w4File, setW4File, categoryPrefix: 'employee' },
+    { id: 'employee', label: 'Employee', visaType, requireForNationality: nationality === 'US', i9File, setI9File, w4File, setW4File, categoryPrefix: 'employee' },
     ...(hasSpouse ? [{
       id: 'spouse', label: 'Spouse', visaType: spouseVisaType || visaType,
       i9File: spouseI9File, setI9File: setSpouseI9File,
@@ -117,7 +120,7 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
       setW4File: file => setKidDocument?.(index, 'w4File', file),
       categoryPrefix: `onboard_kid_${index}`,
     })),
-  ], [visaType, i9File, setI9File, w4File, setW4File, hasSpouse, spouseVisaType, spouseI9File, setSpouseI9File, spouseW4File, setSpouseW4File, kids, setKidDocument]);
+  ], [visaType, nationality, i9File, setI9File, w4File, setW4File, hasSpouse, spouseVisaType, spouseI9File, setSpouseI9File, spouseW4File, setSpouseW4File, kids, setKidDocument]);
 
   const selectedPersonData = people.find(person => person.id === selectedPerson) || people[0];
 
@@ -146,6 +149,7 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
           const payload = draft.data.payload;
           if (payload.bank) setBank(payload.bank);
           if (payload.insuranceRows) setInsuranceRows(payload.insuranceRows);
+          if (payload.insuranceSelected) setInsuranceSelected(payload.insuranceSelected);
           if (payload.files && payload.files.length > 0) setFiles(payload.files);
         }
       } catch (err) { /* draft not available */ }
@@ -236,6 +240,7 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
     payload: {
       bank,
       insuranceRows,
+      insuranceSelected,
       files,
       spouseDocs: hasSpouse ? { i9File: spouseI9File || null, w4File: spouseW4File || null } : null,
       kidDocs: kids.map(kid => ({ i9File: kid.i9File || null, w4File: kid.w4File || null })),
@@ -260,6 +265,10 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
   };
 
   const validateForSubmit = () => {
+    if (nationality === 'US' && (!i9File || !w4File)) {
+      setValidationError('Completed I-9 and W-4 documents are required for US nationality.');
+      return false;
+    }
     const missingBankField = [
       [bank.name, 'Please enter the Bank Name.'],
       [bank.acc, 'Please enter the Account Number.'],
@@ -460,6 +469,7 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
         </div>
         <VisaDocumentsCard
           visaType={selectedPersonData?.visaType}
+          requireForNationality={selectedPersonData?.requireForNationality}
           employeeId={employeeId}
           i9File={selectedPersonData?.i9File}
           setI9File={selectedPersonData?.setI9File}
@@ -469,7 +479,7 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
           personLabel={selectedPersonData?.label || 'Employee'}
           categoryPrefix={selectedPersonData?.categoryPrefix || 'employee'}
         />
-        {selectedPersonData && selectedPersonData.visaType !== 'H1B' && selectedPersonData.visaType !== 'F1' && (
+        {selectedPersonData && !selectedPersonData.requireForNationality && selectedPersonData.visaType !== 'H1B' && selectedPersonData.visaType !== 'F1' && (
           <EmpTypography.small>This person does not have H-1B or F-1 Onboard Docs requirements.</EmpTypography.small>
         )}
       </section>
@@ -517,7 +527,15 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
       </div>
 
       {/* Insurance Table Section */}
-      <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
+      {insuranceMode !== 'hidden' && <>
+      {insuranceMode === 'optional' && <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
+        <EmpTypography.h2 className="mb-3">Insurance</EmpTypography.h2>
+        <div className="flex items-center gap-5">
+          <EmpTypography.label>Do you want insurance?</EmpTypography.label>
+          {['Yes', 'No'].map(option => <label key={option} className="flex items-center gap-2"><input type="radio" name="insuranceSelected" value={option} checked={insuranceSelected === option} onChange={event => setInsuranceSelected(event.target.value)} disabled={isReadOnly} />{option}</label>)}
+        </div>
+      </div>}
+      {(insuranceMode === 'visible' || insuranceSelected === 'Yes') && <div className="rounded-2xl border bg-white shadow-sm p-5 mb-6">
         <EmpTypography.h2 className="mb-3">Insurance<span className="text-red-500">
           *
         </span> :</EmpTypography.h2>
@@ -593,6 +611,7 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
           </div>
         )}
       </div>
+      }</>}
 
       {validationError && (
         <EmpTypography.small className="text-red-600 mb-2">{validationError}</EmpTypography.small>

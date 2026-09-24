@@ -9,6 +9,20 @@ const API_URL = import.meta.env.VITE_API_URL;
 
 const emptySettings = { description: "", contactEmail: "", contactPhone: "", headquarters: "", canadaOffice: "", indiaOffice: "" };
 const emptyJob = { role: "", technology: "", experience: "" };
+const US_BRANCH_ADDRESS = "1600 W Golf Road, Suite 1200, Rolling Meadows, IL 60008";
+
+function companyBranches(companyName, settings) {
+    if (String(companyName || "").trim().toLowerCase() !== "siritek inc") {
+        return [{ label: "US Branch", address: US_BRANCH_ADDRESS }];
+    }
+
+    return [
+        { label: "Headquarters", field: "headquarters" },
+        { label: "Canada", field: "canadaOffice" },
+        { label: "India Office", field: "indiaOffice" },
+        { label: "US Branch", address: US_BRANCH_ADDRESS },
+    ].map(branch => ({ ...branch, address: branch.address || settings[branch.field] || "" }));
+}
 
 const authHeaders = (json = true) => {
     const token = localStorage.getItem("token");
@@ -266,7 +280,7 @@ export default function Company() {
                 <div className="mt-10 border-t pt-6">
                     <div className="max-w-6xl mx-auto px-4 mb-12">
                         <AdminTypography.h2 className="text-center text-2xl font-semibold mb-8">Company Details</AdminTypography.h2>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">{[["Headquarters", "headquarters"], ["Main Office (Canada)", "canadaOffice"], ["India Office", "indiaOffice"]].map(([label, field]) => <div key={field} className="space-y-2"><AdminTypography.h3 className="font-semibold text-base">{label}</AdminTypography.h3>{isRootAdmin ? <textarea value={settingsDraft[field]} onChange={e => updateSetting(field, e.target.value)} className="border rounded px-3 py-2 w-full min-h-[130px]" /> : <p className="whitespace-pre-line">{settings[field]}</p>}</div>)}</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 text-sm">{companyBranches(company?.name, settings).map(branch => <div key={branch.label} className="space-y-2"><AdminTypography.h3 className="font-semibold text-base">{branch.label}</AdminTypography.h3>{isRootAdmin && branch.field ? <textarea value={settingsDraft[branch.field]} onChange={e => updateSetting(branch.field, e.target.value)} className="border rounded px-3 py-2 w-full min-h-[130px]" /> : <p className="border rounded px-3 py-2 w-full min-h-[130px] whitespace-pre-line text-gray-800">{branch.address}</p>}</div>)}</div>
                         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm"><div className="space-y-2"><AdminTypography.h3 className="font-semibold text-base">Contact</AdminTypography.h3>{isRootAdmin ? <><input value={settingsDraft.contactEmail} onChange={e => updateSetting("contactEmail", e.target.value)} className="border rounded px-3 py-2 w-full" /><input value={settingsDraft.contactPhone} onChange={e => updateSetting("contactPhone", e.target.value)} className="border rounded px-3 py-2 w-full" /></> : <p><strong>Email:</strong> {settings.contactEmail}<br /><strong>Call:</strong> {settings.contactPhone}</p>}</div></div>
                         {isRootAdmin && <AdminTypography.button variant="primary" onClick={handleSettingsSave} className="mt-6">Save Details</AdminTypography.button>}
                     </div>

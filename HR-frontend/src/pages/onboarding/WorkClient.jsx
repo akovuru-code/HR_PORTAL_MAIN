@@ -60,14 +60,14 @@ function EmployerDocumentUpload({ employeeId, category, documentName, documentFi
           <FileUploadField
             label="Employee uploaded document:"
             value={files.employee}
-            onChange={() => {}}
+            onChange={() => { }}
             employeeId={employeeId}
             category={category}
             disabled
           />
         </div>
       )}
-      {note && <EmpTypography.small className="mt-1 text-gray-600">{note}</EmpTypography.small>}
+      <EmpTypography.small className="mt-1 text-gray-600">{[note, 'Experience Letter, I-140, and Approval Copy documents needed.'].filter(Boolean).join(' ')}</EmpTypography.small>
     </>
   );
 }
@@ -549,9 +549,9 @@ const WorkClient = forwardRef(function WorkClient({
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Client ${idx + 1} Document`}
                     disabled={areDocumentsReadOnly}
                     isAdmin={isAdminViewer}
-                    note="Client letter and Appreciation documents needed."
+                    note="Need Client letter and Appreciation documents."
                   />
-                  
+
                 </div>
                 {!isReadOnly && <div className="flex justify-between items-center mt-2">
                   <EmpTypography.button variant="primary" onClick={() => handleAdd("client")}>+ Add</EmpTypography.button>
@@ -643,7 +643,7 @@ const WorkClient = forwardRef(function WorkClient({
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Vendor ${idx + 1} Document`}
                     disabled={areDocumentsReadOnly}
                     isAdmin={isAdminViewer}
-                    note="Vendor letter and appreciation documents needed."
+                    note="Need Vendor letter and appreciation documents."
                   />
                 </div>
                 {!isReadOnly && <div className="flex justify-between items-center mt-2">
@@ -759,7 +759,7 @@ const WorkClient = forwardRef(function WorkClient({
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Prime Vendor ${idx + 1} Document`}
                     disabled={areDocumentsReadOnly}
                     isAdmin={isAdminViewer}
-                    note="Prime Vendor letter and appreciation documents needed."
+                    note="Need Prime Vendor letter and appreciation documents."
                   />
                 </div>
                 {!isReadOnly && <div className="flex justify-between items-center mt-2">

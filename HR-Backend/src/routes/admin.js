@@ -32,6 +32,27 @@ const { createTimesheetPdf, createMonthlyTimesheetPdf, safeFilenamePart } = requ
 const { getTimesheetLetterhead } = require('../config/timesheetLetterheads');
 
 function dateKeyFromUtcDate(date) { return date.toISOString().slice(0, 10); }
+function canEditOrDeleteDocumentsDirectly(user) {
+  return accountType(user) === 'root_admin';
+}
+function requireRootOrHrOrApprovedDocumentEdit(req, res, next) {
+  if (canEditOrDeleteDocumentsDirectly(req.user)) return next();
+  return requireApprovedEdit('document', request => request.params.id)(req, res, next);
+}
+function canViewCompanyDocuments(user) {
+  const adminRole = String(user?.adminRole || user?.admin_role || '').toLowerCase();
+  return accountType(user) === 'root_admin' || (accountType(user) === 'admin' && adminRole === 'hr');
+}
+function isCompanyDocument(document) {
+  return String(document?.fileData?.categoryType || '').toLowerCase() === 'company' ||
+    String(document?.document_type || '').toLowerCase().startsWith('admin_company_');
+}
+function isRecruitingAdmin(user) {
+  return accountType(user) === 'admin' && String(user?.adminRole || user?.admin_role || '').toLowerCase() === 'recruitment';
+}
+function isWorkInfoDocument(document) {
+  return /^(work_|present_employer_|previous_employer_)/i.test(String(document?.document_type || ''));
+}
 function normalizeWeekStart(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -987,7 +1008,7 @@ router.get('/employee-training-status', requireRootOrAdminRole('recruitment'), a
 });
 
 // GET /api/admin/employee-associations
-// Read-only consolidated view for Root, HR, and Accounts Admins. It derives
+// Read-only consolidated view for Root, HR, Accounts, and Recruiting Admins. It derives
 // every value from the existing employee, work-association, and vendor-rate
 // records; this endpoint does not maintain a second copy of those fields.
 router.get('/employee-associations', requireRootOrAdminRole('hr', 'accounts', 'payroll', 'recruitment'), async (req, res) => {
@@ -1275,10 +1296,16 @@ router.delete('/employees/:id/invoices/:invoiceId', authenticateToken, requireAp
 });
 
 // PATCH /api/admin/documents/:id
-router.patch('/documents/:id', authenticateToken, requireApprovedEdit('document'), async (req, res) => {
+router.patch('/documents/:id', authenticateToken, requireRootOrHrOrApprovedDocumentEdit, async (req, res) => {
   try {
     const doc = await Document.findByPk(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
+    if (isCompanyDocument(doc) && !canViewCompanyDocuments(req.user)) {
+      return res.status(403).json({ error: 'Company documents are available only to Root Admin and HR Admin' });
+    }
+    if (isRecruitingAdmin(req.user) && isWorkInfoDocument(doc)) {
+      return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
+    }
     const { name, expiry, url, filename, originalName, fileData } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -1296,12 +1323,13 @@ router.patch('/documents/:id', authenticateToken, requireApprovedEdit('document'
 });
 
 // GET /api/admin/documents
-router.get('/documents', authenticateToken, async (req, res) => {
+router.get('/documents', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const docs = await Document.findAll({
       order: [['document_id', 'DESC']],
     });
-    res.json({ documents: docs });
+    const companyVisible = canViewCompanyDocuments(req.user) ? docs : docs.filter(document => !isCompanyDocument(document));
+    res.json({ documents: isRecruitingAdmin(req.user) ? companyVisible.filter(document => !isWorkInfoDocument(document)) : companyVisible });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

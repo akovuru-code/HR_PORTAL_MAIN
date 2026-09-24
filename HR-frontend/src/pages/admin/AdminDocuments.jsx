@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
+import { useAuth } from "../../hooks/useAuth";
+import { requestOrUseAdminAction } from "../../utils/adminDeleteRequest";
 import axios from "axios";
 
 const api = axios.create({ baseURL: "/api" });
@@ -21,7 +23,12 @@ function documentCategory(document) {
     const source = String(document.document_type || "").toLowerCase();
     if (source.startsWith("present_employer_") || source.startsWith("previous_employer_") || source.startsWith("work_") || source.startsWith("onboard_doc_")) return "work";
     if (source.includes("visa") || source.endsWith("_i9") || source.endsWith("_w4") || source.startsWith("onboard_kid_")) return "visa";
+    if (source.startsWith("admin_company_")) return "company";
     return "personal";
+}
+
+function isWorkInfoDocument(document) {
+    return /^(work_|present_employer_|previous_employer_)/i.test(String(document?.document_type || ""));
 }
 
 function categoryLabel(category) {
@@ -148,6 +155,7 @@ function DeleteConfirmation({ open, document, onClose, onConfirm }) {
 }
 
 export default function AdminDocuments() {
+    const { user, isRootAdmin } = useAuth();
     const [documents, setDocuments] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState("");
@@ -164,7 +172,12 @@ export default function AdminDocuments() {
     const [docToDelete, setDocToDelete] = useState(null);
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [docToEdit, setDocToEdit] = useState(null);
+    const [actionRequestStatuses, setActionRequestStatuses] = useState({});
     const inputRef = useRef(null);
+    const adminRole = String(user?.adminRole || user?.admin_role || "").toLowerCase();
+    const canManageCompanyCategory = isRootAdmin || adminRole === "hr";
+    const isRecruitingAdmin = !isRootAdmin && adminRole === "recruitment";
+    const canEditOrDeleteDirectly = isRootAdmin;
 
     const handleDateChange = (setter) => (e) => {
         const value = e.target.value;
@@ -187,10 +200,42 @@ export default function AdminDocuments() {
         return user?.employeeId || user?.id;
     };
 
+    const fetchActionRequestStatuses = async (documentList) => {
+        if (isRootAdmin || !documentList.length) {
+            setActionRequestStatuses({});
+            return;
+        }
+        try {
+            const resourceIds = documentList.map(document => document.document_id).join(",");
+            const res = await api.get("/admin-action-requests/mine", {
+                params: { resourceType: "document", resourceIds },
+            });
+            const statuses = {};
+            (res.data.requests || []).forEach(request => {
+                const key = `${request.resourceId}:${request.actionType}`;
+                if (!statuses[key]) statuses[key] = request.status;
+            });
+            setActionRequestStatuses(statuses);
+        } catch {
+            setActionRequestStatuses({});
+        }
+    };
+
     const fetchDocs = async () => {
         try {
             const res = await api.get("/admin/documents");
-            setDocuments(res.data.documents || []);
+            const loadedDocuments = res.data.documents || [];
+            // Keep Company documents out of the client state for roles that
+            // are not permitted to view them, even if a stale response is
+            // ever returned by the API.
+            const companyVisibleDocuments = canManageCompanyCategory
+                ? loadedDocuments
+                : loadedDocuments.filter(document => documentCategory(document) !== "company");
+            const visibleDocuments = isRecruitingAdmin
+                ? companyVisibleDocuments.filter(document => !isWorkInfoDocument(document))
+                : companyVisibleDocuments;
+            setDocuments(visibleDocuments);
+            fetchActionRequestStatuses(visibleDocuments);
         } catch { }
     };
 
@@ -268,6 +313,57 @@ export default function AdminDocuments() {
         } catch { }
     };
 
+    const viewDocument = async (document) => {
+        try {
+            const response = await api.get(document.url, { responseType: "blob" });
+            const objectUrl = URL.createObjectURL(response.data);
+            window.open(objectUrl, "_blank", "noopener,noreferrer");
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        } catch (err) {
+            alert(err?.response?.data?.error || "Unable to open document.");
+        }
+    };
+
+    const requestEdit = async (document) => {
+        try {
+            const approved = await requestOrUseAdminAction({
+                actionType: "edit",
+                resourceType: "document",
+                resourceId: document.document_id,
+                resourceLabel: document.name || document.originalName || "document",
+                isRootAdmin: canEditOrDeleteDirectly,
+            });
+            if (approved) {
+                setDocToEdit(document);
+                setEditModalOpen(true);
+            } else {
+                fetchActionRequestStatuses(documents);
+            }
+        } catch (err) {
+            alert(err?.message || "Unable to request edit approval.");
+        }
+    };
+
+    const requestDelete = async (document) => {
+        try {
+            const approved = await requestOrUseAdminAction({
+                actionType: "delete",
+                resourceType: "document",
+                resourceId: document.document_id,
+                resourceLabel: document.name || document.originalName || "document",
+                isRootAdmin: canEditOrDeleteDirectly,
+            });
+            if (approved) {
+                setDocToDelete(document);
+                setDeleteModalOpen(true);
+            } else {
+                fetchActionRequestStatuses(documents);
+            }
+        } catch (err) {
+            alert(err?.message || "Unable to request delete approval.");
+        }
+    };
+
     const filteredDocuments = documents.filter(doc => {
         if (searchQuery && !(doc.name || "").toLowerCase().includes(searchQuery.toLowerCase())) return false;
         const uploadDate = doc.createdAt?.split("T")[0] || "";
@@ -280,11 +376,10 @@ export default function AdminDocuments() {
     return (
         <div className="max-w-7xl mx-auto px-4 py-8">
             <div className="mb-6">
-                <AdminTypography.h2 className="text-gray-900">Documents</AdminTypography.h2>
-                <div className="text-sm text-gray-500 mt-1">Manage and view portal documents.</div>
+                <AdminTypography.h2 className="text-gray-900">Company Documents</AdminTypography.h2>
+                <div className="text-sm text-gray-500 mt-1">Manage company documents.</div>
             </div>
 
-            {/* Upload Section */}
             <div className="bg-white border rounded-xl shadow-sm p-6 mb-6">
                 <AdminTypography.h3 className="mb-4 text-blue-700 border-b border-blue-50 pb-2">Upload New Document</AdminTypography.h3>
                 <div
@@ -321,6 +416,7 @@ export default function AdminDocuments() {
                                     <option value="personal">Personal</option>
                                     <option value="work">Work</option>
                                     <option value="visa">Visa</option>
+                                    {canManageCompanyCategory && <option value="company">Company</option>}
                                 </select>
                             </div>
                             <div className="w-48">
@@ -364,12 +460,13 @@ export default function AdminDocuments() {
                             onChange={handleDateChange(setDateTo)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                     </div>
                     <div>
-                        <AdminTypography.label className="text-xs mb-1 block">Category</AdminTypography.label>
+                        <AdminTypography.label className="text-xs mb-1 block">Category Type</AdminTypography.label>
                         <select value={filterCategory} onChange={event => setFilterCategory(event.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
                             <option value="">All categories</option>
                             <option value="personal">Personal</option>
                             <option value="work">Work</option>
                             <option value="visa">Visa</option>
+                            {canManageCompanyCategory && <option value="company">Company</option>}
                         </select>
                     </div>
                     <button onClick={() => { setSearchQuery(""); setDateFrom(""); setDateTo(""); setFilterCategory(""); }} className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-100 rounded text-sm">
@@ -397,6 +494,7 @@ export default function AdminDocuments() {
                                 <th className="px-5 py-3">Uploader</th>
                                 <th className="px-5 py-3">Uploaded By</th>
                                 <th className="px-5 py-3">Upload Date</th>
+                                <th className="px-5 py-3 text-center">Request Status</th>
                                 <th className="px-5 py-3 text-center">Actions</th>
                             </tr>
                         </thead>
@@ -412,18 +510,30 @@ export default function AdminDocuments() {
                                     <td className="px-5 py-3">{doc.modifiedBy || "—"}</td>
                                     <td className="px-5 py-3">{doc.createdAt?.split("T")[0] || "—"}</td>
                                     <td className="px-5 py-3 text-center">
+                                        {(() => {
+                                            const editStatus = actionRequestStatuses[`${doc.document_id}:edit`];
+                                            const deleteStatus = actionRequestStatuses[`${doc.document_id}:delete`];
+                                            const status = editStatus || deleteStatus;
+                                            const label = status ? `${editStatus ? "Edit" : "Delete"}: ${status.charAt(0).toUpperCase()}${status.slice(1)}` : "—";
+                                            const color = status === "pending" ? "bg-amber-100 text-amber-800" : status === "approved" ? "bg-green-100 text-green-800" : status === "rejected" ? "bg-red-100 text-red-800" : "text-gray-500";
+                                            return <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${color}`}>{label}</span>;
+                                        })()}
+                                    </td>
+                                    <td className="px-5 py-3 text-center">
                                         <div className="flex items-center justify-center gap-2">
                                             {doc.url && (
-                                                <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded hover:bg-blue-100 transition-colors">
+                                                <button onClick={() => viewDocument(doc)} className="text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded hover:bg-blue-100 transition-colors">
                                                     View
-                                                </a>
+                                                </button>
                                             )}
-                                            <button onClick={() => { setDocToEdit(doc); setEditModalOpen(true); }} className="text-green-600 hover:text-green-800 font-medium px-2 py-1 rounded hover:bg-green-50 transition-colors">
-                                                Edit
-                                            </button>
-                                            <button onClick={() => { setDocToDelete(doc); setDeleteModalOpen(true); }} className="text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors">
-                                                Delete
-                                            </button>
+                                            <>
+                                                <button onClick={() => requestEdit(doc)} className="text-green-600 hover:text-green-800 font-medium px-2 py-1 rounded hover:bg-green-50 transition-colors">
+                                                    Edit
+                                                </button>
+                                                <button onClick={() => requestDelete(doc)} className="text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors">
+                                                    Delete
+                                                </button>
+                                            </>
                                         </div>
                                     </td>
                                 </tr>
