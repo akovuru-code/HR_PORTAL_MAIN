@@ -40,7 +40,7 @@ function EmployerDocumentUpload({ employeeId, category, documentName, documentFi
               originalName: file.originalName,
               document_type: category,
               fileData: file,
-            }).catch(() => {});
+            }).catch(() => { });
           }
         }}
         employeeId={employeeId}
@@ -53,14 +53,14 @@ function EmployerDocumentUpload({ employeeId, category, documentName, documentFi
           <FileUploadField
             label="Employee uploaded document:"
             value={files.employee}
-            onChange={() => {}}
+            onChange={() => { }}
             employeeId={employeeId}
             category={category}
             disabled
           />
         </div>
       )}
-      {note && <EmpTypography.small className="mt-1 text-gray-600">{note}</EmpTypography.small>}
+      <EmpTypography.small className="mt-1 text-gray-600">{[note, 'Experience Letter, I-140, and Approval Copy documents needed.'].filter(Boolean).join(' ')}</EmpTypography.small>
     </>
   );
 }
@@ -203,6 +203,7 @@ const WorkClient = forwardRef(function WorkClient({
   const isReadOnly = onboardingSubmitted && !canEdit;
   const areDocumentsReadOnly = documentsReadOnly ?? !canEditDocuments;
   const isAdminViewer = ['admin', 'root_admin', 'hr'].includes(String(accountType || user?.role || '').toLowerCase());
+  const isRecruitingAdmin = String(user?.adminRole || '').toLowerCase() === 'recruitment';
 
   useEffect(() => {
     async function loadData() {
@@ -526,7 +527,7 @@ const WorkClient = forwardRef(function WorkClient({
                   <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={clientPrimeVendorName} onChange={e => setClientPrimeVendorName(e.target.value)} placeholder="Enter Prime Vendor Name" disabled={isReadOnly} />
                 </div>
               )}
-              <div className="flex items-center justify-between mb-2 gap-4">
+              {!isRecruitingAdmin && <div className="flex items-center justify-between mb-2 gap-4">
                 <div className="flex flex-col flex-1">
                   <EmployerDocumentUpload
                     documentFiles={c.docFiles}
@@ -536,9 +537,9 @@ const WorkClient = forwardRef(function WorkClient({
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Client ${idx + 1} Document`}
                     disabled={areDocumentsReadOnly}
                     isAdmin={isAdminViewer}
-                    note="Client letter and Appreciation documents needed."
+                    note="Need Client letter and Appreciation documents."
                   />
-                  
+
                 </div>
                 <div className="flex justify-between items-center mt-2">
                   <EmpTypography.button variant="primary" onClick={() => handleAdd("client")} disabled={isReadOnly}>+ Add</EmpTypography.button>
@@ -549,7 +550,7 @@ const WorkClient = forwardRef(function WorkClient({
                     >🗑️</button>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -621,7 +622,7 @@ const WorkClient = forwardRef(function WorkClient({
                 </div>
               )}
 
-              <div className="flex items-center justify-between mb-2 gap-4">
+              {!isRecruitingAdmin && <div className="flex items-center justify-between mb-2 gap-4">
                 <div className="flex flex-col flex-1">
                   <EmployerDocumentUpload
                     documentFiles={v.docFiles}
@@ -631,7 +632,7 @@ const WorkClient = forwardRef(function WorkClient({
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Vendor ${idx + 1} Document`}
                     disabled={areDocumentsReadOnly}
                     isAdmin={isAdminViewer}
-                    note="Vendor letter and appreciation documents needed."
+                    note="Need Vendor letter and appreciation documents."
                   />
                 </div>
                 <div className="flex justify-between items-center mt-2">
@@ -643,7 +644,7 @@ const WorkClient = forwardRef(function WorkClient({
                     >🗑️</button>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -738,7 +739,7 @@ const WorkClient = forwardRef(function WorkClient({
                   <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={p.name} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, name: e.target.value } : pi))} placeholder="Enter Vendor Name" disabled={isReadOnly} />
                 </div>
               )}
-              <div className="flex items-center justify-between mb-2 gap-4">
+              {!isRecruitingAdmin && <div className="flex items-center justify-between mb-2 gap-4">
                 <div className="flex flex-col flex-1">
                   <EmployerDocumentUpload
                     documentFiles={p.docFiles}
@@ -748,7 +749,7 @@ const WorkClient = forwardRef(function WorkClient({
                     documentName={`${employerType === 'present' ? 'Present' : 'Previous'} Employer ${Number(employerIndex) + 1} Prime Vendor ${idx + 1} Document`}
                     disabled={areDocumentsReadOnly}
                     isAdmin={isAdminViewer}
-                    note="Prime Vendor letter and appreciation documents needed."
+                    note="Need Prime Vendor letter and appreciation documents."
                   />
                 </div>
                 <div className="flex justify-between items-center mt-2">
@@ -760,7 +761,7 @@ const WorkClient = forwardRef(function WorkClient({
                     >🗑️</button>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
           ))}
         </div>

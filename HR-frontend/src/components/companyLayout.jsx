@@ -40,7 +40,7 @@ export default function CompanyLayout({ children }) {
         { name: "Prime Vendors", path: "/admin/prime-vendors" },
         { name: "Calendar", path: "/admin/calendar" },
         { name: "Announcements", path: "/admin/announcements" },
-        { name: "Documents", path: "/admin/documents" },
+        { name: "Company Documents", path: "/admin/documents" },
         { name: "Bench & Opportunities", path: "/admin/recruiting" },
         { name: "Department", path: "/admin/department" },
         ...(ADMIN_FEATURE_VISIBILITY.supportTickets ? [{ name: "Support Tickets", path: "/admin/support-tickets" }] : []),

@@ -4,6 +4,35 @@ const AuditLog = require('../models/auditLog');
 const { consumeDeleteApproval } = require('../services/deleteAuthorizationService');
 const { isAdmin, visibleDocuments } = require('../utils/documentVisibility');
 
+function canManageCompanyCategory(user) {
+  const accountType = String(user?.accountType || user?.account_type || user?.role || '').toLowerCase();
+  const adminRole = String(user?.adminRole || user?.admin_role || '').toLowerCase();
+  return accountType === 'root_admin' || (accountType === 'admin' && adminRole === 'hr');
+}
+
+function isCompanyCategory(payload) {
+  return String(payload?.fileData?.categoryType || '').toLowerCase() === 'company' ||
+    String(payload?.document_type || '').toLowerCase().startsWith('admin_company_');
+}
+
+function isRecruitingAdmin(user) {
+  return String(user?.accountType || user?.role || '').toLowerCase() === 'admin' &&
+    String(user?.adminRole || user?.admin_role || '').toLowerCase() === 'recruitment';
+}
+
+function isWorkInfoDocument(document) {
+  return /^(work_|present_employer_|previous_employer_)/i.test(String(document?.document_type || ''));
+}
+
+function visibleToViewer(documents, user, employeeId) {
+  const visible = visibleDocuments(documents, user, employeeId);
+  const companyFiltered = canManageCompanyCategory(user)
+    ? visible
+    : visible.filter(document => !isCompanyCategory(document));
+  if (!isRecruitingAdmin(user)) return companyFiltered;
+  return companyFiltered.filter(document => !isWorkInfoDocument(document));
+}
+
 
 async function resolveEmployee(userId) {
   const userModel = require('../models/user');
@@ -32,7 +61,7 @@ exports.getDocuments = async (req, res) => {
       where: { employee_id: employee.employee_id },
       order: [['document_id', 'ASC']],
     });
-    res.json({ documents: visibleDocuments(docs, req.user, employee.employee_id) });
+    res.json({ documents: visibleToViewer(docs, req.user, employee.employee_id) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -63,7 +92,7 @@ exports.getDocumentsForEmployee = async (req, res) => {
       order: [['document_id', 'ASC']],
     });
 
-    res.json({ documents: visibleDocuments(docs, req.user, employeeId) });
+    res.json({ documents: visibleToViewer(docs, req.user, employeeId) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -75,6 +104,12 @@ exports.getDocumentsForEmployee = async (req, res) => {
 // If no document_type provided, always inserts (for multi-file sections like onboard docs).
 exports.registerDocument = async (req, res) => {
   try {
+    if (isCompanyCategory(req.body) && !canManageCompanyCategory(req.user)) {
+      return res.status(403).json({ error: 'Only Root Admin and HR Admin can upload Company-category documents' });
+    }
+    if (isRecruitingAdmin(req.user) && isWorkInfoDocument(req.body)) {
+      return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
+    }
     const requestedEmployeeId = req.body.employeeId;
     const isAdminUser = isAdmin(req.user);
     const employee = requestedEmployeeId
@@ -140,6 +175,9 @@ exports.createDocument = async (req, res) => {
 // DELETE /api/documents/type/:documentType
 exports.deleteByType = async (req, res) => {
   try {
+    if (isRecruitingAdmin(req.user) && isWorkInfoDocument({ document_type: req.params.documentType })) {
+      return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
+    }
     const requestedEmployeeId = req.query.employeeId;
     const isAdminUser = isAdmin(req.user);
     const employee = requestedEmployeeId
@@ -165,6 +203,12 @@ exports.deleteDocument = async (req, res) => {
   try {
     const doc = await Document.findByPk(id);
     if (!doc) return res.status(404).json({ error: 'Not found' });
+    if (isCompanyCategory(doc) && !canManageCompanyCategory(req.user)) {
+      return res.status(403).json({ error: 'Company documents are available only to Root Admin and HR Admin' });
+    }
+    if (isRecruitingAdmin(req.user) && isWorkInfoDocument(doc)) {
+      return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
+    }
     if (!isAdmin(req.user) && req.user.employeeId !== doc.employeeId) return res.status(403).json({ error: 'Forbidden' });
     await doc.destroy();
     await consumeDeleteApproval(req, 'document', id);

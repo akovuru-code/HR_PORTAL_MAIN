@@ -2054,8 +2054,10 @@ export default function ProfileInfo() {
             spouseW4File={spouseW4File}
             setSpouseW4File={setSpouseW4File}
             spouseVisaType={spouseVisaType}
+            nationality={nationality}
             kids={kidsList}
             setKidDocument={updateKid}
+            insuranceMode={nationality === 'CANADA' ? 'hidden' : nationality === 'INDIA' ? 'optional' : 'visible'}
           />
         </section>
 

@@ -412,6 +412,7 @@ export default function ProfileWork() {
   const [saving, setSaving] = useState(false);
 
   const { user } = useAuth();
+  const isRecruitingAdmin = String(user?.adminRole || '').toLowerCase() === 'recruitment';
   const { targetEmployeeId } = useAdminView() || {};
 
   const employeeId =
@@ -1582,7 +1583,7 @@ export default function ProfileWork() {
 
                         <div className="flex flex-col mb-2">
 
-                          <FileUploadField
+                          {!isRecruitingAdmin && <FileUploadField
                             label="Document Upload:"
                             employeeId={
                               employeeId
@@ -1599,7 +1600,7 @@ export default function ProfileWork() {
                               handleEmployerDocumentChange("present", idx, fileInfo)
                             }
                             disabled={areDocumentsReadOnly}
-                          />
+                          />}
 
                           <EmpTypography.small className="text-gray-500 mt-1">
                             Upload all
@@ -1614,7 +1615,7 @@ export default function ProfileWork() {
                             OPT/CPT,
                             ALL
                             I-20's,
-                            EAD Copies
+                            EAD Copies, Experience Letter, I-140, Approval Copy
                           </EmpTypography.small>
 
                         </div>
@@ -2240,7 +2241,7 @@ export default function ProfileWork() {
 
                   <div className="flex flex-col mb-2">
 
-                    <FileUploadField
+                    {!isRecruitingAdmin && <FileUploadField
                       label="Document Upload:"
                       employeeId={
                         employeeId
@@ -2257,7 +2258,7 @@ export default function ProfileWork() {
                         handleEmployerDocumentChange("previous", idx, fileInfo)
                       }
                       disabled={areDocumentsReadOnly}
-                    />
+                    />}
 
                     <EmpTypography.small className="text-gray-500 mt-1">
                       Upload all
@@ -2272,7 +2273,7 @@ export default function ProfileWork() {
                       OPT/CPT,
                       ALL
                       I-20's,
-                      EAD Copies
+                      EAD Copies, Experience Letter, I-140, Approval Copy
                     </EmpTypography.small>
 
                   </div>

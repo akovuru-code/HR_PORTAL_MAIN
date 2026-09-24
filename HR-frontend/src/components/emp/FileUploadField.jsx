@@ -51,21 +51,31 @@ export default function FileUploadField({ employeeId, category, label, documentN
         onChange(null);
     };
 
+    const handleView = async () => {
+        try {
+            const response = await api.get(value.url, { responseType: "blob" });
+            const objectUrl = URL.createObjectURL(response.data);
+            window.open(objectUrl, "_blank", "noopener,noreferrer");
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        } catch (err) {
+            setError(err?.response?.data?.error || "Unable to open file");
+        }
+    };
+
     return (
         <div className="space-y-1">
             {label && <label className="block text-sm font-medium">{label}</label>}
             {value?.url ? (
                 <div className="flex items-center gap-2 border rounded px-3 py-2 bg-gray-50">
                     <span className="text-sm text-gray-700 truncate flex-1">{value.originalName || value.filename || "Uploaded file"}</span>
-                    <a
-                        href={value.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                    <button
+                        type="button"
+                        onClick={handleView}
                         className="text-blue-600 hover:text-blue-800"
                         title="Download"
                     >
                         <FaDownload />
-                    </a>
+                    </button>
                     {!disabled && (
                         <button
                             type="button"

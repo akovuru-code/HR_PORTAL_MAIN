@@ -8,7 +8,7 @@ import { ADMIN_FEATURE_VISIBILITY } from "../../utils/adminFeatureVisibility";
 
 const modules = [
   { label: "Bench & Opportunities", icon: <FaPersonBooth />, route: "/admin/recruiting", anyPermissions: ["recruiting:manage", "recruiting:view"] },
-  { label: "Documents", icon: <FaFileAlt />, route: "/admin/documents", permission: "documents:manage" },
+  { label: "Company Documents", icon: <FaFileAlt />, route: "/admin/documents", permission: "documents:manage" },
   { label: "Create Employee", icon: <FaUserPlus />, route: "/admin/register", permission: "employee:create" },
   { label: "Clients", icon: <FaUsers />, route: "/admin/clients", permission: "operations:manage", visible: false },
   { label: "Vendors", icon: <FaHandshake />, route: "/admin/vendors", permission: "operations:manage" },
@@ -27,7 +27,7 @@ const modules = [
 const ROOT_ADMIN_MORE_ORDER = [
   'Create Employee',
   'Employee & Project Details',
-  'Documents',
+  'Company Documents',
   'Payroll',
   'Vendors',
   'Bench & Opportunities',
@@ -43,7 +43,7 @@ export default function AdminOptions() {
   const isRootAdmin = accountType === 'root_admin';
   const isAdmin = isRootAdmin || accountType === "admin";
   const adminRole = String(user?.adminRole || user?.admin_role || '').toLowerCase();
-  const canViewEmployeeAssociations = isRootAdmin || ['hr', 'accounts', 'payroll'].includes(adminRole);
+  const canViewEmployeeAssociations = isRootAdmin || ['hr', 'accounts', 'payroll', 'recruitment'].includes(adminRole);
   const can = (permission, anyPermissions) => isRootAdmin || !permission && !anyPermissions || user?.permissions?.includes(permission) || anyPermissions?.some(item => user?.permissions?.includes(item));
   const availableModules = [...modules, ...(canViewEmployeeAssociations ? [{ label: 'Employee & Project Details', icon: <FaUsers />, route: '/admin/employee-associations' }] : []), ...(isRootAdmin ? [{ label: 'Admin Management', icon: <FaUsers />, route: '/admin/admin-management' }] : [])]
     .filter(mod => mod.visible !== false && can(mod.permission, mod.anyPermissions));

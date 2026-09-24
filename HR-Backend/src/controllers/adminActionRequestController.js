@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const AdminActionRequest = require('../models/adminActionRequest');
 const AuditLog = require('../models/auditLog');
+const Document = require('../models/document');
 const { accountType } = require('../middleware/authorization');
 
 // This is deliberately a policy map, not a second role system.  It only says
@@ -17,6 +18,8 @@ const permissionFor = {
 };
 const ACTION_TYPES = new Set(['edit', 'delete']);
 function canRequest(user, resourceType) { return accountType(user) === 'admin' && (user.permissions || []).includes(permissionFor[resourceType]); }
+function isRecruitingAdmin(user) { return accountType(user) === 'admin' && String(user?.adminRole || user?.admin_role || '').toLowerCase() === 'recruitment'; }
+function isWorkInfoDocument(document) { return /^(work_|present_employer_|previous_employer_)/i.test(String(document?.document_type || '')); }
 
 exports.create = async (req, res) => {
   const actionType = String(req.body?.actionType || 'delete').trim().toLowerCase(); const resourceType = String(req.body?.resourceType || '').trim(); const resourceId = String(req.body?.resourceId || '').trim(); const resourceLabel = String(req.body?.resourceLabel || '').trim(); const reason = String(req.body?.reason || '').trim();
@@ -25,6 +28,10 @@ exports.create = async (req, res) => {
   if (accountType(req.user) === 'root_admin') return res.status(400).json({ error: `Root Admin can ${actionType} directly.` });
   if (!canRequest(req.user, resourceType)) return res.status(403).json({ error: 'You are not authorized for this module.' });
   try {
+    if (resourceType === 'document' && isRecruitingAdmin(req.user)) {
+      const document = await Document.findByPk(resourceId);
+      if (document && isWorkInfoDocument(document)) return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
+    }
     if (await AdminActionRequest.findOne({ where: { requesterId: req.user.id, actionType, resourceType, resourceId, status: { [Op.in]: ['pending', 'approved'] } } })) return res.status(409).json({ error: `An ${actionType} request is already pending or approved for this record.` });
     const request = await AdminActionRequest.create({ requesterId: req.user.id, requesterRole: req.user.adminRole || 'admin', actionType, resourceType, resourceId, resourceLabel, reason, status: 'pending' });
     await AuditLog.create({ entity: 'AdminActionRequest', entityId: request.id, action: `${actionType}_request_created`, actorId: req.user.id, payload: { resourceType, resourceId, reason } });

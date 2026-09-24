@@ -43,7 +43,7 @@ export default (
     <Route path="onboarding" element={<EmpOnboard />} />
     <Route path="payroll" element={<ProtectedRoute permission="payroll:view"><AdminPayroll /></ProtectedRoute>} />
     <Route path="options" element={<AdminOptions />} />
-    <Route path="employee-associations" element={<ProtectedRoute allowedAdminRoles={['hr', 'accounts', 'payroll']}><EmployeeAssociations /></ProtectedRoute>} />
+    <Route path="employee-associations" element={<ProtectedRoute allowedAdminRoles={['hr', 'accounts', 'payroll', 'recruitment']}><EmployeeAssociations /></ProtectedRoute>} />
     <Route path="invoice" element={<ProtectedRoute permission="invoice:manage"><AdminInvoice /></ProtectedRoute>} />
     <Route path="projects" element={<ProtectedRoute permission="operations:manage"><AdminProjects /></ProtectedRoute>} />
     <Route path="options/payments" element={<ProtectedRoute permission="invoice:manage"><AdminPayments /></ProtectedRoute>} />

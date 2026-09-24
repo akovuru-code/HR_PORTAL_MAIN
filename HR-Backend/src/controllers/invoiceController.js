@@ -16,7 +16,7 @@ const { getInvoiceOverdueState, overdueLabel } = require('../utils/invoiceOverdu
 const { consumeEditApproval } = require('../services/deleteAuthorizationService');
 
 const TERMS = { 'Net 15': 15, 'Net 30': 30, 'Net 45': 45, 'Net 60': 60, Custom: null };
-const STATUSES = new Set(['Draft', 'Generated', 'Sent', 'Paid', 'Overdue', 'Cancelled']);
+const STATUSES = new Set(['Draft', 'Generated', 'Sent', 'Due', 'Paid', 'Overdue', 'Cancelled']);
 const BILLING_FREQUENCIES = new Set(['weekly', 'bi-weekly', 'monthly']);
 const emailPattern = /^\S+@\S+\.\S+$/;
 

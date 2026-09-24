@@ -181,12 +181,6 @@ export default function Settings() {
     const [phoneCountry, setPhoneCountry] = useState("US");
     const [phone, setPhone] = useState("");
     const [about, setAbout] = useState("");
-    const [status, setStatus] = useState("In Project");
-    const [role, setRole] = useState("");
-    const [jobDesc, setJobDesc] = useState("");
-    const [prevRole, setPrevRole] = useState("");
-    const [trainingModules, setTrainingModules] = useState("");
-    const [certifications, setCertifications] = useState("");
     const [notif, setNotif] = useState({ hr: true, timesheet: true, onboarding: false });
 
 
@@ -207,25 +201,11 @@ export default function Settings() {
                 setPhone("");
             }
             setAbout(d.aboutMe || "");
-            setStatus(d.profileStatus || "In Project");
-            const sd = d.statusDetails || {};
-            setRole(sd.role || "");
-            setJobDesc(sd.jobDesc || "");
-            setPrevRole(sd.prevRole || "");
-            setTrainingModules(sd.trainingModules || "");
-            setCertifications(sd.certifications || "");
             if (d.notifPrefs) setNotif({ hr: !!d.notifPrefs.hr, timesheet: !!d.notifPrefs.timesheet, onboarding: !!d.notifPrefs.onboarding });
         }).catch(() => {
             setEmail(user?.email || "");
         });
     }, []);
-
-    const buildStatusDetails = () => {
-        if (status === "In Project") return { role, jobDesc };
-        if (status === "On Bench") return { prevRole };
-        if (status === "In Training") return { trainingModules, certifications };
-        return {};
-    };
 
     function handlePhotoChange(e) {
         const file = e.target.files[0];
@@ -247,8 +227,6 @@ export default function Settings() {
                 phone: cleanPhone ? `${activeCode}${cleanPhone}` : null,
                 phoneCountry,
                 aboutMe: about,
-                profileStatus: status,
-                statusDetails: buildStatusDetails(),
                 ...(photoUrl ? { profileImage: photoUrl } : {}),
             });
             if (res?.data?.user) login(res.data.user, localStorage.getItem("token"));
@@ -278,42 +256,6 @@ export default function Settings() {
         } catch {
             setToast({ message: "Failed to save preferences.", type: "error" });
         } finally { setNotifLoading(false); }
-    }
-
-    let statusDetails = null;
-    if (status === "In Project") {
-        statusDetails = (
-            <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1">
-                    <AdminTypography.label>Role</AdminTypography.label>
-                    <input type="text" className="w-full border rounded px-3 py-2" value={role} onChange={e => setRole(e.target.value)} />
-                </div>
-                <div className="flex-1">
-                    <AdminTypography.label>Job Description</AdminTypography.label>
-                    <input type="text" className="w-full border rounded px-3 py-2" value={jobDesc} onChange={e => setJobDesc(e.target.value)} />
-                </div>
-            </div>
-        );
-    } else if (status === "On Bench") {
-        statusDetails = (
-            <div className="flex-1">
-                <AdminTypography.label>Previous Role</AdminTypography.label>
-                <input type="text" className="w-full border rounded px-3 py-2" value={prevRole} onChange={e => setPrevRole(e.target.value)} />
-            </div>
-        );
-    } else if (status === "In Training") {
-        statusDetails = (
-            <div className="flex flex-col gap-4">
-                <div>
-                    <AdminTypography.label>Ongoing Training Modules</AdminTypography.label>
-                    <textarea className="w-full border rounded px-3 py-2" rows={2} value={trainingModules} onChange={e => setTrainingModules(e.target.value)} />
-                </div>
-                <div>
-                    <AdminTypography.label>Certifications Completed</AdminTypography.label>
-                    <textarea className="w-full border rounded px-3 py-2" rows={2} value={certifications} onChange={e => setCertifications(e.target.value)} />
-                </div>
-            </div>
-        );
     }
 
     return (
@@ -387,18 +329,6 @@ export default function Settings() {
                                 <textarea className="w-full border rounded px-3 py-2" rows={3} maxLength={500} value={about} onChange={e => setAbout(e.target.value)} />
                             </div>
                         </div>
-                    </div>
-                    {/* Status */}
-                    <div className="flex flex-col md:flex-row gap-8">
-                        <div className="flex-1">
-                            <AdminTypography.label>Current Status</AdminTypography.label>
-                            <select className="w-full border rounded px-3 py-2" value={status} onChange={e => setStatus(e.target.value)}>
-                                <option>In Project</option>
-                                <option>On Bench</option>
-                                <option>In Training</option>
-                            </select>
-                        </div>
-                        <div className="flex-1">{statusDetails}</div>
                     </div>
                     {/* Email / Password */}
                     <div className="flex flex-col md:flex-row gap-8">
