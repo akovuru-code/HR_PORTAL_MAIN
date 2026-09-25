@@ -8,6 +8,18 @@ const authHeaders = () => {
     return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 };
 
+function formatContactNumber(contact, countryCode) {
+    const number = String(contact || '').trim();
+    if (!number) return '—';
+
+    // Admin-created vendors already store a combined international number.
+    // Employee Work Info vendors store digits and the dialing code separately.
+    if (number.startsWith('+') || !/^\d+$/.test(number) || !countryCode) return number;
+    const code = String(countryCode).trim();
+    if (!code) return number;
+    return `${code.startsWith('+') ? code : `+${code}`} ${number}`;
+}
+
 function VendorModal({ open, onClose, onSave, initialData, isEdit }) {
     const [dropdownItems, setDropdownItems] = useState({ client: [], primeVendor: [] });
     const [rateEmployees, setRateEmployees] = useState([]);
@@ -770,6 +782,7 @@ export default function AdminVendors() {
             const end = new Date(vendor.endDate);
             if (end < today) displayStatus = "Inactive";
         }
+        const contactNumber = formatContactNumber(vendor.contact, vendor.contactCountryCode);
         return (
             <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
                 <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-3xl md:max-w-4xl relative overflow-y-auto max-h-screen">
@@ -833,7 +846,7 @@ export default function AdminVendors() {
                                 </div>
                                 <div>
                                     <AdminTypography.label>Contact Number</AdminTypography.label>
-                                    <AdminTypography.p className="text-gray-900">{vendor.contact || '—'}</AdminTypography.p>
+                                    <AdminTypography.p className="text-gray-900">{contactNumber}</AdminTypography.p>
                                 </div>
                                 <div>
                                     <AdminTypography.label>Payment Terms</AdminTypography.label>

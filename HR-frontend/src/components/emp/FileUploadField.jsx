@@ -91,14 +91,26 @@ export default function FileUploadField({ employeeId, category, label, documentN
             {value?.url ? (
                 <div className="flex items-center gap-2 border rounded px-3 py-2 bg-gray-50">
                     <span className="text-sm text-gray-700 truncate flex-1">{value.originalName || value.filename || "Uploaded file"}</span>
-                    <button
-                        type="button"
+                    {/* A disabled Personal Info fieldset must lock uploads and
+                        removal, but previewing an already-authorized document
+                        remains available. A non-form control is intentional:
+                        fieldset disabled otherwise suppresses button clicks. */}
+                    <span
+                        role="button"
+                        tabIndex={0}
                         onClick={handleView}
-                        className="text-blue-600 hover:text-blue-800"
-                        title="Download"
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                handleView();
+                            }
+                        }}
+                        className="cursor-pointer text-blue-600 hover:text-blue-800"
+                        title="Preview file"
+                        aria-label={`Preview ${value.originalName || value.filename || "uploaded file"}`}
                     >
                         <FaDownload />
-                    </button>
+                    </span>
                     {!disabled && (
                         <button
                             type="button"

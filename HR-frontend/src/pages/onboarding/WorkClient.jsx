@@ -163,20 +163,31 @@ const WorkClient = forwardRef(function WorkClient({
   const [clientPrimeRadio, setClientPrimeRadio] = useState("No");
   const [clientVendorName, setClientVendorName] = useState("");
   const [clientPrimeVendorName, setClientPrimeVendorName] = useState("");
-  // Vendor and Prime radio states per entry
-  const [vendorRadios, setVendorRadios] = useState(["Client"]);
+  // Relationship controls are intentionally separate from the primary
+  // Client/Vendor/Prime Vendor details above. A "Yes" only reveals the
+  // related input; it must never reuse or overwrite the primary name.
+  const [vendorClientRadios, setVendorClientRadios] = useState(["No"]);
+  const [vendorPrimeRadios, setVendorPrimeRadios] = useState(["No"]);
   const [vendorClientNames, setVendorClientNames] = useState([""]);
   const [vendorPrimeNames, setVendorPrimeNames] = useState([""]);
-  const [primeRadios, setPrimeRadios] = useState(["Client"]);
+  const [primeClientRadios, setPrimeClientRadios] = useState(["No"]);
+  const [primeVendorRadios, setPrimeVendorRadios] = useState(["No"]);
   const [primeClientNames, setPrimeClientNames] = useState([""]);
   const [primeVendorNames, setPrimeVendorNames] = useState([""]);
+  const updateIndexedValue = (setter, index, value) => setter(current => {
+    const next = [...current];
+    next[index] = value;
+    return next;
+  });
+  const isYesNoList = value => Array.isArray(value) && value.every(item => item === "Yes" || item === "No");
+  const legacyNamesOrEmpty = value => isYesNoList(value) ? [] : (Array.isArray(value) ? value : []);
   // Build the draft payload
   const buildPayload = () => ({
     tab: effectiveDraftTab, payload: {
       clientInfo, vendorInfo, primeInfo,
       clientVendorRadio, clientPrimeRadio, clientVendorName, clientPrimeVendorName,
-      vendorRadios, vendorClientNames, vendorPrimeNames,
-      primeClientNames, primeVendorNames,
+      vendorClientRadios, vendorPrimeRadios, vendorClientNames, vendorPrimeNames,
+      primeClientRadios, primeVendorRadios, primeClientNames, primeVendorNames,
       employerType, employerIndex,
     }, spouse: null, kids: [], documents: []
   });
@@ -289,18 +300,25 @@ const WorkClient = forwardRef(function WorkClient({
           if (primes.length > 0) { setPrimeInfo(primes); loaded = true; }
           // Restore radio/conditional states from server
           const radioRecord = serverClients.find(c => c.type === 'radioStates');
-          if (radioRecord?.name) {
+          let radioStates = radioRecord?.meta?.radioStates || null;
+          if (!radioStates && radioRecord?.name) {
+            try { radioStates = JSON.parse(radioRecord.name); } catch { radioStates = null; }
+          }
+          if (radioStates) {
             try {
-              const rs = JSON.parse(radioRecord.name);
+              const rs = radioStates;
               if (rs.clientVendorRadio) setClientVendorRadio(rs.clientVendorRadio);
               if (rs.clientPrimeRadio) setClientPrimeRadio(rs.clientPrimeRadio);
               if (rs.clientVendorName) setClientVendorName(rs.clientVendorName);
               if (rs.clientPrimeVendorName) setClientPrimeVendorName(rs.clientPrimeVendorName);
-              if (rs.vendorRadios) setVendorRadios(rs.vendorRadios);
+              if (rs.vendorClientRadios || rs.vendorRadios) setVendorClientRadios(rs.vendorClientRadios || rs.vendorRadios);
+              if (rs.vendorPrimeRadios || isYesNoList(rs.vendorPrimeNames)) setVendorPrimeRadios(rs.vendorPrimeRadios || rs.vendorPrimeNames);
               if (rs.vendorClientNames) setVendorClientNames(rs.vendorClientNames);
-              if (rs.vendorPrimeNames) setVendorPrimeNames(rs.vendorPrimeNames);
-              if (rs.primeClientNames) setPrimeClientNames(rs.primeClientNames);
-              if (rs.primeVendorNames) setPrimeVendorNames(rs.primeVendorNames);
+              if (rs.vendorPrimeNames) setVendorPrimeNames(legacyNamesOrEmpty(rs.vendorPrimeNames));
+              if (rs.primeClientRadios || isYesNoList(rs.primeClientNames)) setPrimeClientRadios(rs.primeClientRadios || rs.primeClientNames);
+              if (rs.primeVendorRadios || isYesNoList(rs.primeVendorNames)) setPrimeVendorRadios(rs.primeVendorRadios || rs.primeVendorNames);
+              if (rs.primeClientNames) setPrimeClientNames(legacyNamesOrEmpty(rs.primeClientNames));
+              if (rs.primeVendorNames) setPrimeVendorNames(legacyNamesOrEmpty(rs.primeVendorNames));
             } catch (e) { }
           }
         }
@@ -343,11 +361,14 @@ const WorkClient = forwardRef(function WorkClient({
           if (payload.clientPrimeRadio) setClientPrimeRadio(payload.clientPrimeRadio);
           if (payload.clientVendorName) setClientVendorName(payload.clientVendorName);
           if (payload.clientPrimeVendorName) setClientPrimeVendorName(payload.clientPrimeVendorName);
-          if (payload.vendorRadios) setVendorRadios(payload.vendorRadios);
+          if (payload.vendorClientRadios || payload.vendorRadios) setVendorClientRadios(payload.vendorClientRadios || payload.vendorRadios);
+          if (payload.vendorPrimeRadios || isYesNoList(payload.vendorPrimeNames)) setVendorPrimeRadios(payload.vendorPrimeRadios || payload.vendorPrimeNames);
           if (payload.vendorClientNames) setVendorClientNames(payload.vendorClientNames);
-          if (payload.vendorPrimeNames) setVendorPrimeNames(payload.vendorPrimeNames);
-          if (payload.primeClientNames) setPrimeClientNames(payload.primeClientNames);
-          if (payload.primeVendorNames) setPrimeVendorNames(payload.primeVendorNames);
+          if (payload.vendorPrimeNames) setVendorPrimeNames(legacyNamesOrEmpty(payload.vendorPrimeNames));
+          if (payload.primeClientRadios || isYesNoList(payload.primeClientNames)) setPrimeClientRadios(payload.primeClientRadios || payload.primeClientNames);
+          if (payload.primeVendorRadios || isYesNoList(payload.primeVendorNames)) setPrimeVendorRadios(payload.primeVendorRadios || payload.primeVendorNames);
+          if (payload.primeClientNames) setPrimeClientNames(legacyNamesOrEmpty(payload.primeClientNames));
+          if (payload.primeVendorNames) setPrimeVendorNames(legacyNamesOrEmpty(payload.primeVendorNames));
         }
       } catch (err) { /* draft not available */ }
       // Seed from parent ProfileWork summary data if nothing loaded from server/draft
@@ -614,25 +635,25 @@ const WorkClient = forwardRef(function WorkClient({
               <div className="flex flex-col md:flex-row gap-2 mb-2">
                 <div className="flex items-center gap-2">
                   <EmpTypography.label>Client:</EmpTypography.label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`vendorRadio${idx}`} value="Yes" checked={vendorRadios[idx] === "Yes"} onChange={() => setVendorRadios(radios => radios.map((r, i) => i === idx ? "Yes" : r))} disabled={isReadOnly} /> Yes</label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`vendorRadio${idx}`} value="No" checked={vendorRadios[idx] === "No"} onChange={() => setVendorRadios(radios => radios.map((r, i) => i === idx ? "No" : r))} disabled={isReadOnly} /> No</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`vendorRadio${idx}`} value="Yes" checked={vendorClientRadios[idx] === "Yes"} onChange={() => updateIndexedValue(setVendorClientRadios, idx, "Yes")} disabled={isReadOnly} /> Yes</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`vendorRadio${idx}`} value="No" checked={vendorClientRadios[idx] === "No"} onChange={() => updateIndexedValue(setVendorClientRadios, idx, "No")} disabled={isReadOnly} /> No</label>
                 </div>
                 <div className="flex items-center gap-2">
                   <EmpTypography.label>Prime Vendor:</EmpTypography.label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`vendorPrimeRadio${idx}`} value="Yes" checked={vendorPrimeNames[idx] === "Yes"} onChange={() => setVendorPrimeNames(names => names.map((n, i) => i === idx ? "Yes" : n))} disabled={isReadOnly} /> Yes</label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`vendorPrimeRadio${idx}`} value="No" checked={vendorPrimeNames[idx] === "No"} onChange={() => setVendorPrimeNames(names => names.map((n, i) => i === idx ? "No" : n))} disabled={isReadOnly} /> No</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`vendorPrimeRadio${idx}`} value="Yes" checked={vendorPrimeRadios[idx] === "Yes"} onChange={() => updateIndexedValue(setVendorPrimeRadios, idx, "Yes")} disabled={isReadOnly} /> Yes</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`vendorPrimeRadio${idx}`} value="No" checked={vendorPrimeRadios[idx] === "No"} onChange={() => updateIndexedValue(setVendorPrimeRadios, idx, "No")} disabled={isReadOnly} /> No</label>
                 </div>
               </div>
-              {(vendorRadios[idx] === "Yes") && (
+              {(vendorClientRadios[idx] === "Yes") && (
                 <div className="mb-2">
                   <EmpTypography.label>Client Name:</EmpTypography.label>
-                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={v.name} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, name: e.target.value } : vi))} placeholder="Enter Client Name" disabled={isReadOnly} />
+                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={vendorClientNames[idx] || ""} onChange={e => updateIndexedValue(setVendorClientNames, idx, e.target.value)} placeholder="Enter Client Name" disabled={isReadOnly} />
                 </div>
               )}
-              {(vendorPrimeNames[idx] === "Yes") && (
+              {(vendorPrimeRadios[idx] === "Yes") && (
                 <div className="mb-2">
                   <EmpTypography.label>Prime Vendor Name:</EmpTypography.label>
-                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={v.parentName} onChange={e => setVendorInfo(info => info.map((vi, i) => i === idx ? { ...vi, parentName: e.target.value } : vi))} placeholder="Enter Prime Vendor Name" disabled={isReadOnly} />
+                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={vendorPrimeNames[idx] || ""} onChange={e => updateIndexedValue(setVendorPrimeNames, idx, e.target.value)} placeholder="Enter Prime Vendor Name" disabled={isReadOnly} />
                 </div>
               )}
 
@@ -731,25 +752,25 @@ const WorkClient = forwardRef(function WorkClient({
               <div className="flex flex-col md:flex-row gap-2 mb-2">
                 <div className="flex items-center gap-2">
                   <EmpTypography.label>Client:</EmpTypography.label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`primeClientRadio${idx}`} value="Yes" checked={primeClientNames[idx] === "Yes"} onChange={() => setPrimeClientNames(names => names.map((n, i) => i === idx ? "Yes" : n))} disabled={isReadOnly} /> Yes</label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`primeClientRadio${idx}`} value="No" checked={primeClientNames[idx] === "No"} onChange={() => setPrimeClientNames(names => names.map((n, i) => i === idx ? "No" : n))} disabled={isReadOnly} /> No</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`primeClientRadio${idx}`} value="Yes" checked={primeClientRadios[idx] === "Yes"} onChange={() => updateIndexedValue(setPrimeClientRadios, idx, "Yes")} disabled={isReadOnly} /> Yes</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`primeClientRadio${idx}`} value="No" checked={primeClientRadios[idx] === "No"} onChange={() => updateIndexedValue(setPrimeClientRadios, idx, "No")} disabled={isReadOnly} /> No</label>
                 </div>
                 <div className="flex items-center gap-2">
                   <EmpTypography.label>Vendor:</EmpTypography.label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`primeVendorRadio${idx}`} value="Yes" checked={primeVendorNames[idx] === "Yes"} onChange={() => setPrimeVendorNames(names => names.map((n, i) => i === idx ? "Yes" : n))} disabled={isReadOnly} /> Yes</label>
-                  <label className="flex items-center gap-1"><input type="radio" name={`primeVendorRadio${idx}`} value="No" checked={primeVendorNames[idx] === "No"} onChange={() => setPrimeVendorNames(names => names.map((n, i) => i === idx ? "No" : n))} disabled={isReadOnly} /> No</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`primeVendorRadio${idx}`} value="Yes" checked={primeVendorRadios[idx] === "Yes"} onChange={() => updateIndexedValue(setPrimeVendorRadios, idx, "Yes")} disabled={isReadOnly} /> Yes</label>
+                  <label className="flex items-center gap-1"><input type="radio" name={`primeVendorRadio${idx}`} value="No" checked={primeVendorRadios[idx] === "No"} onChange={() => updateIndexedValue(setPrimeVendorRadios, idx, "No")} disabled={isReadOnly} /> No</label>
                 </div>
               </div>
-              {(primeClientNames[idx] === "Yes") && (
+              {(primeClientRadios[idx] === "Yes") && (
                 <div className="mb-2">
                   <EmpTypography.label>Client Name:</EmpTypography.label>
-                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={p.name} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, name: e.target.value } : pi))} placeholder="Enter Client Name" disabled={isReadOnly} />
+                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={primeClientNames[idx] || ""} onChange={e => updateIndexedValue(setPrimeClientNames, idx, e.target.value)} placeholder="Enter Client Name" disabled={isReadOnly} />
                 </div>
               )}
-              {(primeVendorNames[idx] === "Yes") && (
+              {(primeVendorRadios[idx] === "Yes") && (
                 <div className="mb-2">
                   <EmpTypography.label>Vendor Name:</EmpTypography.label>
-                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={p.name} onChange={e => setPrimeInfo(info => info.map((pi, i) => i === idx ? { ...pi, name: e.target.value } : pi))} placeholder="Enter Vendor Name" disabled={isReadOnly} />
+                  <input type="text" className="border rounded px-3 py-2 text-sm w-full max-w-md" value={primeVendorNames[idx] || ""} onChange={e => updateIndexedValue(setPrimeVendorNames, idx, e.target.value)} placeholder="Enter Vendor Name" disabled={isReadOnly} />
                 </div>
               )}
               <div className="flex items-center justify-between mb-2 gap-4">

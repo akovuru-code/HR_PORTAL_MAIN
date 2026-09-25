@@ -21,6 +21,7 @@ const { visibleDocumentFiles, protectAdminDocumentFiles, preserveAdminDocuments,
 const { hideAdminUploadedFiles } = require('../utils/onboardingFileVisibility');
 const { employeeUploadedDocument } = require('../utils/documentVisibility');
 const { promoteStagedWorkInfoDrafts, rollbackPromotions } = require('../utils/workInfoDocumentLifecycle');
+const { assertVarcharLengths, logVarcharLengthError, storageLengthResponse } = require('../utils/varcharLengthValidation');
 
 // Associations for role sections
 RoleSection.hasMany(ResumeUpload, { foreignKey: 'role_section_id', as: 'resumeUploads' });
@@ -295,6 +296,11 @@ exports.submitOnboarding = async (req, res) => {
     try {
         const sectionKey = req.body.sectionKey; // optional: mark only this tab's request as used
         const submittedTab = req.body?.tab;
+        const includeOnboardDocs = submittedTab === 'personal' && req.body?.includeOnboardDocs === true;
+        // A submission must persist only its own tab.  Re-saving every draft
+        // made a valid Skills submit fail because of unrelated stale data from
+        // Personal, Work Info, Education, or Onboard Docs.
+        const shouldPersistTab = tab => !submittedTab || submittedTab === tab || (tab === 'onboardDocs' && includeOnboardDocs);
 
         // Load all per-tab drafts for this employee
         const allDrafts = await OnboardingDraft.findAll({ where: { employeeId: id }, transaction: t });
@@ -331,13 +337,14 @@ exports.submitOnboarding = async (req, res) => {
         }
 
         // --- Personal Info (tab: 'personal') ---
-        const personal = draftMap['personal'];
+        const personal = shouldPersistTab('personal') ? draftMap['personal'] : null;
         if (personal?.payload) {
             const employeeFields = Object.keys(Employee.rawAttributes);
             const filtered = {};
             for (const [key, val] of Object.entries(personal.payload)) {
                 if (employeeFields.includes(key)) filtered[key] = val;
             }
+            assertVarcharLengths(Employee, filtered);
             await Employee.update({ ...filtered }, { where: { employee_id: id }, transaction: t });
         } else {
             // no-op: status update handled after submittedTabs check below
@@ -374,6 +381,7 @@ exports.submitOnboarding = async (req, res) => {
                 i9File: s.i9File || null,
                 w4File: s.w4File || null,
             };
+            assertVarcharLengths(Spouse, spouseData);
             const [inst] = await Spouse.findOrCreate({ where: { employee_id: id }, defaults: spouseData, transaction: t });
             await inst.update(spouseData, { transaction: t });
         }
@@ -407,6 +415,7 @@ exports.submitOnboarding = async (req, res) => {
                     i9File: k.i9File || null,
                     w4File: k.w4File || null,
                 };
+                assertVarcharLengths(Kid, kidData);
                 const kidId = Number(k.kidId || k.kid_id);
                 // Older retained drafts predate kid IDs. Match those once by
                 // their existing identifying details, then persist the ID.
@@ -443,7 +452,7 @@ exports.submitOnboarding = async (req, res) => {
         // them loses their persisted file associations.
 
         // --- Resume & Skills (tab: 'skills') ---
-        const skillsDraft = draftMap['skills'];
+        const skillsDraft = shouldPersistTab('skills') ? draftMap['skills'] : null;
         if (Array.isArray(skillsDraft?.payload?.roleSections)) {
             const oldSections = await RoleSection.findAll({ where: { employee_id: id }, attributes: ['role_section_id'], transaction: t });
             const oldIds = oldSections.map(s => s.role_section_id);
@@ -453,33 +462,39 @@ exports.submitOnboarding = async (req, res) => {
             }
             await RoleSection.destroy({ where: { employee_id: id }, transaction: t });
             for (const section of skillsDraft.payload.roleSections) {
-                const rs = await RoleSection.create({
+                const roleValues = {
                     employee_id: id, role: section.role || '',
                     description: section.description || null, skills: section.skills || null,
-                }, { transaction: t });
+                };
+                assertVarcharLengths(RoleSection, roleValues);
+                const rs = await RoleSection.create(roleValues, { transaction: t });
                 const resumeFile = section.resumeFile || (Array.isArray(section.resumeFiles) && section.resumeFiles[0]) || null;
                 if (resumeFile) {
-                    await ResumeUpload.create({
+                    const resumeValues = {
                         role_section_id: rs.role_section_id,
                         file_name: resumeFile.filename || resumeFile.originalName || resumeFile.name || null,
                         file_type: resumeFile.category || resumeFile.type || null,
                         file_size: resumeFile.size || null, file_url: resumeFile.url || null,
-                    }, { transaction: t });
+                    };
+                    assertVarcharLengths(ResumeUpload, resumeValues);
+                    await ResumeUpload.create(resumeValues, { transaction: t });
                 }
                 const cvFile = section.cvFile || (Array.isArray(section.cvFiles) && section.cvFiles[0]) || null;
                 if (cvFile) {
-                    await CvUpload.create({
+                    const cvValues = {
                         role_section_id: rs.role_section_id,
                         file_name: cvFile.filename || cvFile.originalName || cvFile.name || null,
                         file_type: cvFile.category || cvFile.type || null,
                         file_size: cvFile.size || null, file_url: cvFile.url || null,
-                    }, { transaction: t });
+                    };
+                    assertVarcharLengths(CvUpload, cvValues);
+                    await CvUpload.create(cvValues, { transaction: t });
                 }
             }
         }
 
         // --- Education (tab: 'education') ---
-        const eduDraft = draftMap['education'];
+        const eduDraft = shouldPersistTab('education') ? draftMap['education'] : null;
         if (Array.isArray(eduDraft?.payload?.educationList) || Array.isArray(eduDraft?.payload?.certList)) {
             await persistEducation({ employeeId: id, payload: eduDraft.payload,
                 Education: EducationModel, Upload: EducationUpload, Certification, transaction: t });
@@ -499,7 +514,7 @@ exports.submitOnboarding = async (req, res) => {
         }
 
         // --- Work Info (tab: 'profileWork') ---
-        const workDraft = draftMap['profileWork'];
+        const workDraft = shouldPersistTab('profileWork') ? draftMap['profileWork'] : null;
         if (workDraft?.payload) {
             const wp = workDraft.payload;
             // Persist employers
@@ -536,7 +551,7 @@ exports.submitOnboarding = async (req, res) => {
         // --- Work Client Details ---
         // Detailed forms use one isolated draft per employer. The legacy
         // standalone form continues to use the exact "workClient" tab.
-        const workClientDrafts = collectWorkClientDrafts(draftMap, workDraft);
+        const workClientDrafts = shouldPersistTab('profileWork') ? collectWorkClientDrafts(draftMap, workDraft) : [];
 
         if (workDraft?.payload || workClientDrafts.length > 0) {
             const existingWorkClientDetails = await WorkClientDetail.findAll({
@@ -623,7 +638,7 @@ exports.submitOnboarding = async (req, res) => {
         }
 
         // --- Onboard Docs (tab: 'onboardDocs') ---
-        const obDocsDraft = draftMap['onboardDocs'];
+        const obDocsDraft = shouldPersistTab('onboardDocs') ? draftMap['onboardDocs'] : null;
         console.log('[submit] onboardDocs draft found:', !!obDocsDraft, 'has payload:', !!obDocsDraft?.payload);
         if (obDocsDraft?.payload) {
             const ob = obDocsDraft.payload;
@@ -675,7 +690,7 @@ exports.submitOnboarding = async (req, res) => {
         // Personal Info now owns the embedded Onboard Docs workflow. Preserve
         // the legacy onboardDocs completion flag for existing completion and
         // reporting logic, while keeping a single employee-facing submission.
-        let submittedTabsForRequest = submittedTab === 'personal' && req.body?.includeOnboardDocs === true
+        let submittedTabsForRequest = includeOnboardDocs
             ? ['personal', 'onboardDocs']
             : submittedTab ? [submittedTab] : [];
         // Admin saves must never lock an employee's Work Info fields. Employee
@@ -704,6 +719,9 @@ exports.submitOnboarding = async (req, res) => {
     } catch (err) {
         await t.rollback();
         rollbackPromotions(promotedMoves);
+        if (logVarcharLengthError(err, 'onboarding.submitOnboarding')) {
+            return res.status(422).json(storageLengthResponse(err));
+        }
         res.status(500).json({ error: err.message });
     }
 };

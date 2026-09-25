@@ -3,6 +3,7 @@ const Employee = require('../models/employee');
 const AuditLog = require('../models/auditLog');
 const { consumeDeleteApproval } = require('../services/deleteAuthorizationService');
 const { isAdmin, visibleDocuments } = require('../utils/documentVisibility');
+const { assertVarcharLengths, logVarcharLengthError, storageLengthResponse } = require('../utils/varcharLengthValidation');
 
 function canManageCompanyCategory(user) {
   const accountType = String(user?.accountType || user?.account_type || user?.role || '').toLowerCase();
@@ -144,6 +145,8 @@ exports.registerDocument = async (req, res) => {
       role: isAdminUser ? 'admin' : 'employee',
     };
     const storedFileData = { ...(fileData || {}), uploadedBy: uploader };
+    const documentValues = { name, url, filename, originalName, document_type, modifiedBy };
+    assertVarcharLengths(Document, documentValues);
     let doc;
     if (document_type && document_type !== 'admin_doc') {
       const existing = await Document.findOne({
@@ -161,6 +164,9 @@ exports.registerDocument = async (req, res) => {
 
     res.json({ document: doc });
   } catch (err) {
+    if (logVarcharLengthError(err, 'documents.registerDocument')) {
+      return res.status(422).json(storageLengthResponse(err));
+    }
     res.status(500).json({ error: err.message });
   }
 };

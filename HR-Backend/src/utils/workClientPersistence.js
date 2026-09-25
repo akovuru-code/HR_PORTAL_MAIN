@@ -99,22 +99,28 @@ function buildWorkClientRows(workClientDrafts, employeeId, ownership = {}) {
       });
     }
 
-    if (payload.clientVendorRadio !== undefined || payload.vendorRadios) {
+    if (payload.clientVendorRadio !== undefined || payload.vendorClientRadios || payload.vendorRadios) {
+      const radioStates = {
+        clientVendorRadio: payload.clientVendorRadio,
+        clientPrimeRadio: payload.clientPrimeRadio,
+        clientVendorName: payload.clientVendorName,
+        clientPrimeVendorName: payload.clientPrimeVendorName,
+        vendorRadios: payload.vendorRadios,
+        vendorClientRadios: payload.vendorClientRadios,
+        vendorPrimeRadios: payload.vendorPrimeRadios,
+        vendorClientNames: payload.vendorClientNames,
+        vendorPrimeNames: payload.vendorPrimeNames,
+        primeClientRadios: payload.primeClientRadios,
+        primeVendorRadios: payload.primeVendorRadios,
+        primeClientNames: payload.primeClientNames,
+        primeVendorNames: payload.primeVendorNames,
+      };
       rows.push({
         employee_id: employeeId,
         type: 'radioStates',
-        name: JSON.stringify({
-          clientVendorRadio: payload.clientVendorRadio,
-          clientPrimeRadio: payload.clientPrimeRadio,
-          clientVendorName: payload.clientVendorName,
-          clientPrimeVendorName: payload.clientPrimeVendorName,
-          vendorRadios: payload.vendorRadios,
-          vendorClientNames: payload.vendorClientNames,
-          vendorPrimeNames: payload.vendorPrimeNames,
-          primeClientNames: payload.primeClientNames,
-          primeVendorNames: payload.primeVendorNames,
-        }),
-        meta: baseMeta,
+        // `name` is VARCHAR(255); relationship state belongs in JSONB.
+        name: 'radioStates',
+        meta: { ...baseMeta, radioStates },
       });
     }
   }

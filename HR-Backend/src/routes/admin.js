@@ -1436,9 +1436,14 @@ async function getGroupedByType(type) {
     // Fetch radioStates for these employees
     const radioRows = await WorkClientDetail.findAll({
       where: { employee_id: { [Op.in]: empIds }, type: 'radioStates' },
-      attributes: ['employee_id', 'name'],
+      attributes: ['employee_id', 'name', 'meta'],
     });
     radioRows.forEach(r => {
+      if (r.meta?.radioStates && typeof r.meta.radioStates === 'object') {
+        radioMap[r.employee_id] = r.meta.radioStates;
+        return;
+      }
+      // Legacy rows stored the same JSON string in `name`.
       try { radioMap[r.employee_id] = JSON.parse(r.name || '{}'); } catch { radioMap[r.employee_id] = {}; }
     });
   }
@@ -1457,6 +1462,10 @@ async function getGroupedByType(type) {
         endDate: row.end_date || '',
         address: row.address || '',
         contact: row.phone || row.email || '',
+        // Employee Work Info stores the number and dialing code separately.
+        // Keep the code in the Admin Vendors projection so View Details can
+        // render it without modifying the stored phone number.
+        contactCountryCode: row.country_code || meta?.phoneCountryCode || meta?.countryCode || '',
         status: 'Active',
         members: 0,
         vendor: { enabled: false, name: '', startDate: '', endDate: '' },
@@ -1488,6 +1497,7 @@ async function getGroupedByType(type) {
       grouped[key].endDate = row.end_date || grouped[key].endDate;
       grouped[key].address = row.address || grouped[key].address;
       grouped[key].contact = row.phone || grouped[key].contact;
+      grouped[key].contactCountryCode = row.country_code || meta.phoneCountryCode || meta.countryCode || grouped[key].contactCountryCode;
       if (meta.status) grouped[key].status = meta.status;
       if (meta.comment) grouped[key].comment = meta.comment;
       if (meta.members !== undefined && meta.members !== null) grouped[key]._metaMembers = meta.members;
@@ -1539,6 +1549,12 @@ async function getGroupedByType(type) {
           grouped[key].employees.push({ employeeId: row.employee_id, name: empName, removable });
         }
       }
+    }
+
+    // Rows sharing a vendor name can be grouped together. Preserve the first
+    // available dialing code even when the first grouped row had none.
+    if (!grouped[key].contactCountryCode) {
+      grouped[key].contactCountryCode = row.country_code || meta?.phoneCountryCode || meta?.countryCode || '';
     }
   });
 
