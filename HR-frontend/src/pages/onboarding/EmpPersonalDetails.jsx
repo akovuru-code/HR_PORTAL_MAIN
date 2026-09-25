@@ -45,6 +45,8 @@ function DlStateSelect({ nationality, value, onChange }) {
 
 const isPassportInput = value => /^[A-Za-z0-9]*$/.test(value);
 
+const createInsuranceMemberKey = () => `draft-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
 const apiErrorMessage = (error, fallback = 'Request could not be completed.') => {
   const errors = error?.response?.data?.errors;
   if (Array.isArray(errors) && errors.length) {
@@ -188,6 +190,7 @@ function FormattedDateInput({
 export default function ProfileInfo() {
   // State for modify reason popup
   const [showReasonModal, setShowReasonModal] = useState(false);
+  const [personalInfoLoaded, setPersonalInfoLoaded] = useState(false);
   const [modifyReason, setModifyReason] = useState("");
   const [reasonError, setReasonError] = useState("");
 
@@ -269,13 +272,32 @@ export default function ProfileInfo() {
         { file: kid.w4File, name: `Kid ${index + 1} W-4`, type: `kid_${index}_w4`, expiry: null },
       ]),
     ];
-    for (const { file, name, type, expiry } of fileFields) {
+    const employeeId = targetEmployeeId || user?.employeeId || user?.id;
+    if (!employeeId) throw new Error('Missing employeeId in session');
+
+    // Each personal-info slot has its own stable document_type.  Wait for all
+    // registrations before reporting a successful save so the Documents tab
+    // cannot load between the profile save and its document registrations.
+    await Promise.all(fileFields.map(({ file, name, type, expiry }) => {
       if (file?.url) {
-        registerDocument({ employeeId: targetEmployeeId || user?.employeeId || user?.id, name, url: file.url, filename: file.filename, originalName: file.originalName, document_type: type, fileData: file, expiry: expiry || null }).catch(() => { });
-      } else {
-        api2.delete(`/documents/type/${encodeURIComponent(type)}`).catch(() => { });
+        return registerDocument({
+          employeeId,
+          name,
+          url: file.url,
+          filename: file.filename,
+          originalName: file.originalName,
+          document_type: type,
+          fileData: file,
+          expiry: expiry || null,
+        });
       }
-    }
+
+      // When an administrator edits another employee, delete the matching
+      // document row for that employee rather than the administrator's row.
+      return api2.delete(`/documents/type/${encodeURIComponent(type)}`, {
+        params: { employeeId },
+      });
+    }));
   };
 
   // Save draft -> collect payload, spouse, kids, documents and POST to backend
@@ -413,6 +435,7 @@ export default function ProfileInfo() {
   // Kids Info dynamic list
   const [kidsList, setKidsList] = useState([
     {
+      insuranceMemberKey: createInsuranceMemberKey(),
       firstName: "",
       middleName: "",
       lastName: "",
@@ -470,6 +493,7 @@ export default function ProfileInfo() {
     setKidsList(prev => [
       ...prev,
       {
+        insuranceMemberKey: createInsuranceMemberKey(),
         firstName: "",
         middleName: "",
         lastName: "",
@@ -560,6 +584,7 @@ export default function ProfileInfo() {
 
   // Spouse state (shallow fields used by backend)
   const [spouse, setSpouse] = useState({
+    insuranceMemberKey: createInsuranceMemberKey(),
     firstName: "",
     middleName: "",
     lastName: "",
@@ -738,6 +763,8 @@ export default function ProfileInfo() {
         if (spouseRaw) {
           // Handle both camelCase (draft) and snake_case (DB) field names
           setSpouse({
+            spouseId: spouseRaw.spouse_id || spouseRaw.spouseId || null,
+            insuranceMemberKey: spouseRaw.insuranceMemberKey || (spouseRaw.spouse_id ? `spouse-${spouseRaw.spouse_id}` : createInsuranceMemberKey()),
             firstName: spouseRaw.firstName || spouseRaw.first_name || "",
             middleName: spouseRaw.middleName || spouseRaw.middle_name || "",
             lastName: spouseRaw.lastName || spouseRaw.last_name || "",
@@ -795,6 +822,8 @@ export default function ProfileInfo() {
         if (Array.isArray(kidsRaw)) {
           setShowKidsInfo(true);
           setKidsList(kidsRaw.map(k => ({
+            kidId: k.kid_id || k.kidId || null,
+            insuranceMemberKey: k.insuranceMemberKey || (k.kid_id ? `kid-${k.kid_id}` : createInsuranceMemberKey()),
             firstName: k.firstName || k.first_name || "",
             middleName: k.middleName || k.middle_name || "",
             lastName: k.lastName || k.last_name || "",
@@ -829,12 +858,36 @@ export default function ProfileInfo() {
       } catch (err) {
         // ignore silently
         console.warn('Failed to load onboarding', err?.message || err);
+      } finally {
+        setPersonalInfoLoaded(true);
       }
     }
     load();
   }, [user]);
 
+  const eligibleInsuranceMembers = useMemo(() => {
+    const members = [];
+    const employeeName = `${firstName} ${lastName}`.trim();
+    members.push({ key: 'employee', label: employeeName || 'Employee' });
 
+    const spouseName = `${spouse.firstName || ''} ${spouse.lastName || ''}`.trim();
+    if (maritalStatus === 'Married' && spouseName) {
+      members.push({
+        key: spouse.spouseId ? `spouse-${spouse.spouseId}` : `spouse-${spouse.insuranceMemberKey}`,
+        label: spouseName,
+      });
+    }
+
+    kidsList.forEach((kid) => {
+      const kidName = `${kid.firstName || ''} ${kid.lastName || ''}`.trim();
+      if (!kidName) return;
+      members.push({
+        key: kid.kidId ? `kid-${kid.kidId}` : `kid-${kid.insuranceMemberKey}`,
+        label: kidName,
+      });
+    });
+    return members;
+  }, [firstName, lastName, maritalStatus, spouse, kidsList]);
 
   return (
     <div className="space-y-8 font-employee">
@@ -2065,6 +2118,8 @@ export default function ProfileInfo() {
             nationality={nationality}
             kids={kidsList}
             setKidDocument={updateKid}
+            insuranceMembers={eligibleInsuranceMembers}
+            insuranceMembersReady={personalInfoLoaded}
             insuranceMode={nationality === 'CANADA' ? 'hidden' : nationality === 'INDIA' ? 'optional' : 'visible'}
           />
         </section>

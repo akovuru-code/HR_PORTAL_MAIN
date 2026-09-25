@@ -7,7 +7,7 @@ import axios from "axios";
 import { useOnboardingPermissions } from '../../hooks/useOnboardingPermissions';
 import { useAuth } from "../../hooks/useAuth";
 import { useAdminView } from "../../contexts/AdminViewContext";
-import { saveOnboardingFull, submitOnboarding, getDraft, getOnboarding, registerDocument } from "../../api/onboarding";
+import { saveOnboardingFull, submitOnboarding, getDraft, getOnboarding, registerDocument, openProtectedFile } from "../../api/onboarding";
 import FileUploadField from "../../components/emp/FileUploadField";
 
 const api = axios.create({ baseURL: "/api" });
@@ -59,6 +59,8 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
   nationality,
   kids = [],
   setKidDocument,
+  insuranceMembers = [],
+  insuranceMembersReady = false,
   insuranceMode = 'visible',
 }, ref) {
   EmpTypography._log && EmpTypography._log();
@@ -96,12 +98,43 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
   const [bank, setBank] = useState({ name: "", acc: "", routing: "", type: "" });
 
   const [insuranceRows, setInsuranceRows] = useState([
-    { name: "Employee", coverage: { medical: false, vision: false, dental: false } }
+    { name: "Employee", memberKey: 'employee', coverage: { medical: false, vision: false, dental: false } }
   ]);
   const [insuranceSelected, setInsuranceSelected] = useState('');
-
-  const [nameOptions, setNameOptions] = useState(["Employee"]);
+  const [insuranceNotice, setInsuranceNotice] = useState('');
   const [selectedPerson, setSelectedPerson] = useState('employee');
+
+  const eligibleInsuranceMembers = useMemo(() => {
+    const members = Array.isArray(insuranceMembers) ? insuranceMembers.filter(member => member?.key && member?.label) : [];
+    return members.length ? members : [{ key: 'employee', label: 'Employee' }];
+  }, [insuranceMembers]);
+
+  const resolveInsuranceMember = (row) => {
+    if (row?.memberKey) {
+      const keyed = eligibleInsuranceMembers.find(member => member.key === row.memberKey);
+      if (keyed) return keyed;
+    }
+    if (row?.name === 'Employee') return eligibleInsuranceMembers.find(member => member.key === 'employee');
+    return eligibleInsuranceMembers.find(member => member.label === row?.name);
+  };
+
+  useEffect(() => {
+    if (!insuranceMembersReady) return;
+    const used = new Set();
+    let removed = false;
+    const reconciled = insuranceRows.flatMap((row) => {
+      const member = resolveInsuranceMember(row);
+      if (!member || used.has(member.key)) {
+        removed = true;
+        return [];
+      }
+      used.add(member.key);
+      return [{ ...row, memberKey: member.key, name: member.label }];
+    });
+    const changed = reconciled.length !== insuranceRows.length || reconciled.some((row, index) => row.memberKey !== insuranceRows[index]?.memberKey || row.name !== insuranceRows[index]?.name);
+    if (changed) setInsuranceRows(reconciled.length ? reconciled : [{ name: eligibleInsuranceMembers[0].label, memberKey: eligibleInsuranceMembers[0].key, coverage: { medical: false, vision: false, dental: false } }]);
+    if (removed) setInsuranceNotice('Insurance selections for removed, renamed, or duplicate family members were removed. Please review coverage before saving.');
+  }, [insuranceMembersReady, eligibleInsuranceMembers, insuranceRows]);
 
   const people = useMemo(() => [
     { id: 'employee', label: 'Employee', visaType, requireForNationality: nationality === 'US', i9File, setI9File, w4File, setW4File, categoryPrefix: 'employee' },
@@ -154,39 +187,6 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
         }
       } catch (err) { /* draft not available */ }
 
-      // Build insurance name dropdown options from the Personal Details tab
-      // (employee, spouse [if married], and children entered there)
-      try {
-        const personalDraft = await getDraft(employeeId, 'personal');
-        const personalPayload = personalDraft?.data?.payload || {};
-        const names = [];
-
-        const empFirst = personalPayload.firstName || empRecord?.firstName || "";
-        const empLast = personalPayload.lastName || empRecord?.lastName || "";
-        const empFullName = `${empFirst} ${empLast}`.trim();
-        names.push(empFullName || "Employee");
-
-        const maritalStatus = personalPayload.maritalStatus || empRecord?.maritalStatus || "";
-        const spouseRaw = personalDraft?.data?.spouse || empRecord?.Spouse;
-        if (maritalStatus === 'Married' && spouseRaw) {
-          const spouseFirst = spouseRaw.firstName || spouseRaw.first_name || "";
-          const spouseLast = spouseRaw.lastName || spouseRaw.last_name || "";
-          const spouseFullName = `${spouseFirst} ${spouseLast}`.trim();
-          if (spouseFullName) names.push(spouseFullName);
-        }
-
-        const kidsRaw = personalDraft?.data?.kids || empRecord?.Kids || [];
-        if (Array.isArray(kidsRaw)) {
-          kidsRaw.forEach((kid) => {
-            const kidFirst = kid.firstName || kid.first_name || "";
-            const kidLast = kid.lastName || kid.last_name || "";
-            const kidFullName = `${kidFirst} ${kidLast}`.trim();
-            if (kidFullName) names.push(kidFullName);
-          });
-        }
-
-        setNameOptions(names.length > 0 ? names : ["Employee"]);
-      } catch (err) { /* personal data not available yet */ }
     }
     loadData();
   }, [employeeId]);
@@ -219,17 +219,17 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
     }
   };
 
-  const handleDownload = (f) => {
+  const handleDownload = async (f) => {
     if (f.file?.url) {
-      window.open(f.file.url, "_blank");
+      try { await openProtectedFile(f.file.url); } catch (err) { alert(err?.response?.data?.error || 'Unable to open document.'); }
     } else {
       alert("No file uploaded for this document.");
     }
   };
 
-  const handleView = (f) => {
+  const handleView = async (f) => {
     if (f.file?.url) {
-      window.open(f.file.url, "_blank");
+      try { await openProtectedFile(f.file.url); } catch (err) { alert(err?.response?.data?.error || 'Unable to open document.'); }
     } else {
       alert("No file uploaded for this document.");
     }
@@ -550,21 +550,26 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
             </tr>
           </thead>
           <tbody>
-            {insuranceRows.map((row, idx) => (
+            {insuranceRows.map((row, idx) => {
+              const selectedMember = resolveInsuranceMember(row);
+              const selectedKeys = new Set(insuranceRows.filter((_, rowIndex) => rowIndex !== idx).map(otherRow => resolveInsuranceMember(otherRow)?.key).filter(Boolean));
+              return (
               <tr key={idx} className="odd:bg-white even:bg-gray-50">
                 <td className="border px-2 py-1 font-medium">
                   <select
                     className="border rounded px-2 py-1 w-full"
-                    value={row.name}
+                    value={selectedMember?.key || ''}
                     onChange={e => {
+                      const member = eligibleInsuranceMembers.find(option => option.key === e.target.value);
+                      if (!member) return;
                       const newRows = [...insuranceRows];
-                      newRows[idx] = { ...newRows[idx], name: e.target.value };
+                      newRows[idx] = { ...newRows[idx], memberKey: member.key, name: member.label };
                       setInsuranceRows(newRows);
                     }}
                     disabled={isReadOnly}
                   >
-                    {nameOptions.map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
+                    {eligibleInsuranceMembers.filter(member => member.key === selectedMember?.key || !selectedKeys.has(member.key)).map(member => (
+                      <option key={member.key} value={member.key}>{member.label}</option>
                     ))}
                   </select>
                 </td>
@@ -598,7 +603,8 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
                   ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {!isReadOnly && (
@@ -606,12 +612,19 @@ const ProfileOnboardDocs = forwardRef(function ProfileOnboardDocs({
             <button
               type="button"
               className="px-3 py-1 bg-blue-100 text-blue-900 rounded-lg text-xs font-semibold border border-blue-200 hover:bg-blue-200"
-              onClick={() => setInsuranceRows(rows => [...rows, { name: nameOptions[0], coverage: { medical: false, vision: false, dental: false } }])}
+              onClick={() => {
+                const selectedKeys = new Set(insuranceRows.map(row => resolveInsuranceMember(row)?.key).filter(Boolean));
+                const member = eligibleInsuranceMembers.find(option => !selectedKeys.has(option.key));
+                if (member) setInsuranceRows(rows => [...rows, { name: member.label, memberKey: member.key, coverage: { medical: false, vision: false, dental: false } }]);
+              }}
+              disabled={eligibleInsuranceMembers.every(member => insuranceRows.some(row => resolveInsuranceMember(row)?.key === member.key))}
             >Add Row</button>
           </div>
         )}
       </div>
       }</>}
+
+      {insuranceNotice && <EmpTypography.small className="text-amber-700 mb-2">{insuranceNotice}</EmpTypography.small>}
 
       {validationError && (
         <EmpTypography.small className="text-red-600 mb-2">{validationError}</EmpTypography.small>

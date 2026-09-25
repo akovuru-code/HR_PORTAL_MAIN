@@ -37,7 +37,9 @@ function EmployerDocumentUpload({ employeeId, category, documentName, documentFi
           value={files[ownKey]}
           onChange={file => {
             onChange({ ...files, [ownKey]: file });
-            if (file?.url) {
+            // Work Info selected by an employee is staged. Admin-supplied
+            // documents retain the existing immediate registration behavior.
+            if (isAdmin && file?.url) {
               registerDocument({
                 employeeId,
                 name: documentName,
@@ -53,6 +55,7 @@ function EmployerDocumentUpload({ employeeId, category, documentName, documentFi
           category={category}
           documentName={documentName}
           disabled={disabled}
+          stageWorkInfo={!isAdmin}
         />
       )}
       {isAdmin && files.employee?.url && (

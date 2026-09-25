@@ -58,7 +58,12 @@ export function useOnboardingPermissions(pageKey, sectionKey) {
                     const submittedTabs = onboardingRes?.data?.employee?.submittedTabs || {};
                     const submittedTab = submittedTabs[sectionKey];
                     isSubmitted = isTabSubmitted(submittedTab);
-                    if (mounted) setSubmittedByAdmin(isSubmittedByAdmin(submittedTab));
+                    const wasSubmittedByAdmin = isSubmittedByAdmin(submittedTab);
+                    // Older admin submissions of Work Info must not lock the
+                    // employee. Only an employee's own profileWork submission
+                    // is a completion event for that tab.
+                    if (sectionKey === 'profileWork' && wasSubmittedByAdmin) isSubmitted = false;
+                    if (mounted) setSubmittedByAdmin(wasSubmittedByAdmin);
                     // Keep localStorage in sync for fast initial render next time
                     if (typeof window !== 'undefined') {
                         if (isSubmitted) localStorage.setItem(`submitted_${sectionKey}`, 'true');

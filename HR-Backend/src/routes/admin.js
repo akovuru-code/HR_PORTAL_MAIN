@@ -1013,8 +1013,25 @@ router.get('/employee-training-status', requireRootOrAdminRole('recruitment'), a
 // records; this endpoint does not maintain a second copy of those fields.
 router.get('/employee-associations', requireRootOrAdminRole('hr', 'accounts', 'payroll', 'recruitment'), async (req, res) => {
   try {
+    // Employee profile rows also exist for some Admin accounts. The User
+    // account type is the authoritative source for this employee-only view.
+    const employeeAccounts = await User.findAll({
+      where: { accountType: 'employee' },
+      attributes: ['email'],
+    });
+    const employeeEmails = employeeAccounts
+      .map(account => String(account.email || '').trim().toLowerCase())
+      .filter(Boolean);
+    if (!employeeEmails.length) {
+      return res.json({ employees: [], filterOptions: { vendors: [], clients: [], visaStatuses: [] } });
+    }
+
     const [employees, associationRows, vendorDefinitions, vendorRates] = await Promise.all([
       Employee.findAll({
+        where: Employee.sequelize.where(
+          Employee.sequelize.fn('LOWER', Employee.sequelize.col('email')),
+          { [Op.in]: employeeEmails },
+        ),
         attributes: ['employee_id', 'firstName', 'lastName', 'name', 'profileStatus', 'visaType'],
         order: [['firstName', 'ASC'], ['lastName', 'ASC'], ['name', 'ASC']],
       }),
@@ -1461,8 +1478,10 @@ async function getGroupedByType(type) {
       };
     }
 
-    if (meta && !meta.assignedByAdmin) {
-      // Admin-created definition entry: use rich metadata as-is
+    if (row.employee_id === null && meta && !meta.assignedByAdmin) {
+      // Shared admin-created definition entry: use rich metadata as-is.
+      // Employee Work Info rows can also have metadata, but must never be
+      // exposed as editable admin entries.
       grouped[key].id = row.id;
       grouped[key].editable = true;
       grouped[key].startDate = row.start_date || grouped[key].startDate;
@@ -1598,6 +1617,7 @@ function buildWorkClientFields(body, existingMeta = {}, auditActor = '') {
       client_name: client?.enabled ? client.name : null,
     },
     meta: {
+      source: existingMeta.source || 'admin_vendor',
       status: status || 'Active',
       comment: comment || '',
       members: members ?? 0,

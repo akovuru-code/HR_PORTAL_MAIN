@@ -80,6 +80,61 @@ export const updateMyProfile = (data) => api.patch('/auth/profile', data);
 export const changeEmail = (newEmail, password) => api.patch('/auth/email', { newEmail, password });
 export const changePassword = (currentPassword, newPassword) => api.patch('/auth/password', { currentPassword, newPassword });
 
+// Local uploads are protected by bearer authentication. Always retrieve them
+// through the API client instead of navigating directly to their URL.
+export const getProtectedFile = async (url) => {
+    try {
+        return await axios.get(url, {
+            responseType: 'blob',
+            headers: (() => {
+                const token = localStorage.getItem('token');
+                return token ? { Authorization: `Bearer ${token}` } : {};
+            })(),
+        });
+    } catch (error) {
+        // Axios returns error bodies as Blob values when responseType is blob.
+        // Decode the safe API message so the UI can distinguish 401/403/404.
+        if (error?.response?.data instanceof Blob) {
+            try {
+                const payload = JSON.parse(await error.response.data.text());
+                error.response.data = payload;
+            } catch (_) { /* preserve the original request error */ }
+        }
+        throw error;
+    }
+};
+
+export const openProtectedFile = async (url) => {
+    // Open synchronously so browsers do not treat the later blob response as
+    // a popup. The file bytes themselves still come through authenticated API.
+    const preview = window.open('', '_blank');
+    if (preview) preview.opener = null;
+    try {
+        // Do not use the `/api`-based client here: saved URLs already begin
+        // with `/api/...`, and combining them creates `/api/api/...`.
+        const response = await getProtectedFile(url);
+        const objectUrl = URL.createObjectURL(response.data);
+        if (preview) preview.location.href = objectUrl;
+        else window.open(objectUrl, '_blank', 'noopener,noreferrer');
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (error) {
+        preview?.close();
+        throw error;
+    }
+};
+
+export const downloadProtectedFile = async (url, filename = 'document') => {
+    const response = await getProtectedFile(url);
+    const objectUrl = URL.createObjectURL(response.data);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+};
+
 // Fetch draft for a specific tab (or all if no tab)
 export const getDraft = (employeeId, tab) =>
     api.get(`/onboarding/${employeeId}/draft`, { params: tab ? { tab } : {} })

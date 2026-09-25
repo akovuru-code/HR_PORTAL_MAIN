@@ -20,6 +20,7 @@ const { persistEducation } = require('../utils/educationPersistence');
 const { visibleDocumentFiles, protectAdminDocumentFiles, preserveAdminDocuments, mapDraftDocuments } = require('../utils/workClientDocumentVisibility');
 const { hideAdminUploadedFiles } = require('../utils/onboardingFileVisibility');
 const { employeeUploadedDocument } = require('../utils/documentVisibility');
+const { promoteStagedWorkInfoDrafts, rollbackPromotions } = require('../utils/workInfoDocumentLifecycle');
 
 // Associations for role sections
 RoleSection.hasMany(ResumeUpload, { foreignKey: 'role_section_id', as: 'resumeUploads' });
@@ -79,6 +80,25 @@ function workClientDocumentKey(row, fallbackIndexes) {
     const detailIndex = meta.detailIndex ?? fallbackIndexes.get(base) ?? 0;
     fallbackIndexes.set(base, Number(detailIndex) + 1);
     return `${base}|${detailIndex}`;
+}
+
+function canManageVendorsFromWorkInfo(user) {
+    const accountType = String(user?.accountType || user?.account_type || user?.role || '').toLowerCase();
+    if (accountType === 'root_admin') return true;
+    const isHrAdmin = accountType === 'admin' && String(user?.adminRole || user?.admin_role || '').toLowerCase() === 'hr';
+    return isAdmin(user) && !isHrAdmin && Array.isArray(user?.permissions) && user.permissions.includes('operations:manage');
+}
+
+function normalizeWorkClientName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+async function workInfoAuditActor(user) {
+    const email = String(user?.email || '').trim();
+    if (!email) return 'Unknown User';
+    const employee = await Employee.findOne({ where: { email }, attributes: ['name', 'firstName', 'lastName'] });
+    const fullName = [employee?.firstName, employee?.lastName].filter(Boolean).join(' ').trim();
+    return fullName || employee?.name || email;
 }
 
 // GET /api/onboarding/:employeeId
@@ -271,13 +291,44 @@ exports.submitOnboarding = async (req, res) => {
     if (!id) return res.status(400).json({ error: 'Invalid id' });
     if (!isAdmin(req.user) && parseInt(req.user.employeeId, 10) !== id) return res.status(403).json({ error: 'Forbidden' });
     const t = await Employee.sequelize.transaction();
+    let promotedMoves = [];
     try {
         const sectionKey = req.body.sectionKey; // optional: mark only this tab's request as used
+        const submittedTab = req.body?.tab;
 
         // Load all per-tab drafts for this employee
         const allDrafts = await OnboardingDraft.findAll({ where: { employeeId: id }, transaction: t });
-        const draftMap = {};
+        let draftMap = {};
         for (const d of allDrafts) draftMap[d.tab] = d.data;
+
+        // Work Info documents remain staged until the employee actually submits
+        // this tab. Saving a draft (or an admin viewing/saving a record) never
+        // creates final Document rows or commits the file into the Documents tab.
+        if (submittedTab === 'profileWork' && !isAdmin(req.user)) {
+            const promotion = promoteStagedWorkInfoDrafts(draftMap, id);
+            draftMap = promotion.draftMap;
+            promotedMoves = promotion.moves;
+            for (const draft of allDrafts) {
+                if (/^(profileWork|workClient)(?:-|$)/.test(draft.tab)) {
+                    await draft.update({ data: draftMap[draft.tab] }, { transaction: t });
+                }
+            }
+            for (const file of promotion.promoted) {
+                const documentType = file.category || 'work_info_document';
+                const values = {
+                    employee_id: id,
+                    name: file.documentName || file.originalName || file.filename,
+                    url: file.url,
+                    filename: file.filename,
+                    originalName: file.originalName || file.filename,
+                    document_type: documentType,
+                    fileData: file,
+                };
+                const existing = await Document.findOne({ where: { employee_id: id, url: file.url }, transaction: t });
+                if (existing) await existing.update(values, { transaction: t });
+                else await Document.create(values, { transaction: t });
+            }
+        }
 
         // --- Personal Info (tab: 'personal') ---
         const personal = draftMap['personal'];
@@ -326,10 +377,14 @@ exports.submitOnboarding = async (req, res) => {
             const [inst] = await Spouse.findOrCreate({ where: { employee_id: id }, defaults: spouseData, transaction: t });
             await inst.update(spouseData, { transaction: t });
         }
-        if (Array.isArray(personal?.kids) && personal.kids.length) {
-            await Kid.destroy({ where: { employee_id: id }, transaction: t });
+        if (Array.isArray(personal?.kids)) {
+            // Keep existing child IDs stable. Insurance rows may reference a
+            // child, so replacing every row on each submit breaks that link.
+            const existingKids = await Kid.findAll({ where: { employee_id: id }, transaction: t });
+            const existingById = new Map(existingKids.map(kid => [kid.kid_id, kid]));
+            const retainedIds = new Set();
             for (const k of personal.kids) {
-                await Kid.create({
+                const kidData = {
                     employee_id: id,
                     first_name: k.firstName || k.first_name || null,
                     middle_name: k.middleName || k.middle_name || null,
@@ -351,8 +406,34 @@ exports.submitOnboarding = async (req, res) => {
                     docFile2: k.docFile2 || null,
                     i9File: k.i9File || null,
                     w4File: k.w4File || null,
-                }, { transaction: t });
+                };
+                const kidId = Number(k.kidId || k.kid_id);
+                // Older retained drafts predate kid IDs. Match those once by
+                // their existing identifying details, then persist the ID.
+                const existingKid = existingById.get(kidId) || (!kidId && existingKids.find(candidate => (
+                    !retainedIds.has(candidate.kid_id)
+                    && (candidate.first_name || '') === (kidData.first_name || '')
+                    && (candidate.last_name || '') === (kidData.last_name || '')
+                    && String(candidate.dob || '') === String(kidData.dob || '')
+                )));
+                if (existingKid) {
+                    await existingKid.update(kidData, { transaction: t });
+                    retainedIds.add(existingKid.kid_id);
+                    k.kid_id = existingKid.kid_id;
+                    k.kidId = existingKid.kid_id;
+                } else {
+                    const createdKid = await Kid.create(kidData, { transaction: t });
+                    retainedIds.add(createdKid.kid_id);
+                    // Keep the generated ID in the retained personal draft so
+                    // a later Request Modify updates this same child record.
+                    k.kid_id = createdKid.kid_id;
+                    k.kidId = createdKid.kid_id;
+                }
             }
+            const removedIds = existingKids.map(kid => kid.kid_id).filter(kidId => !retainedIds.has(kidId));
+            if (removedIds.length) await Kid.destroy({ where: { employee_id: id, kid_id: removedIds }, transaction: t });
+            const personalDraftRow = allDrafts.find(draft => draft.tab === 'personal');
+            if (personalDraftRow) await personalDraftRow.update({ data: personal }, { transaction: t });
         }
 
         // --- Documents (tab: 'documents') ---
@@ -461,18 +542,78 @@ exports.submitOnboarding = async (req, res) => {
             const existingWorkClientDetails = await WorkClientDetail.findAll({
                 where: { employee_id: id }, order: [['id', 'ASC']], transaction: t,
             });
-            const workClientRows = buildWorkClientRows(workClientDrafts, id);
+            const actor = await workInfoAuditActor(req.user);
+            const vendorManager = canManageVendorsFromWorkInfo(req.user);
+            const currentSource = isAdmin(req.user)
+                ? (vendorManager ? 'admin_work_info' : 'admin_work_info_readonly')
+                : 'employee_work_info';
+            const workClientRows = buildWorkClientRows(workClientDrafts, id, { source: currentSource, actor });
             const existingDocs = new Map();
+            const existingMeta = new Map();
             const oldIndexes = new Map();
             for (const detail of existingWorkClientDetails) {
-                if (!['client', 'vendor', 'primeVendor'].includes(detail.type)) continue;
-                existingDocs.set(workClientDocumentKey(detail, oldIndexes), detail.doc_file);
+                if (!['client', 'vendor', 'primeVendor', 'radioStates'].includes(detail.type)) continue;
+                const key = workClientDocumentKey(detail, oldIndexes);
+                if (detail.type !== 'radioStates') existingDocs.set(key, detail.doc_file);
+                existingMeta.set(key, detail.meta || {});
             }
             const newIndexes = new Map();
+            const existingMasters = await WorkClientDetail.findAll({ where: { employee_id: null, type: 'vendor' }, transaction: t });
+            const mastersByName = new Map(existingMasters.map(master => [normalizeWorkClientName(master.name), master]));
             if (!isAdmin(req.user)) {
                 for (const row of workClientRows) {
                     if (!['client', 'vendor', 'primeVendor'].includes(row.type)) continue;
                     row.doc_file = protectAdminDocumentFiles(existingDocs.get(workClientDocumentKey(row, newIndexes)), row.doc_file);
+                }
+            } else {
+                for (const row of workClientRows) {
+                    const key = workClientDocumentKey(row, newIndexes);
+                    const previous = existingMeta.get(key);
+                    if (previous?.source) {
+                        // An admin editing employee-originated Work Info must
+                        // not silently promote it into an admin-managed vendor.
+                        row.meta = { ...row.meta, ...previous, updatedBy: actor };
+                        continue;
+                    }
+                    if (previous) {
+                        // Legacy rows have no trustworthy ownership evidence.
+                        // Preserve their protected status instead of guessing.
+                        row.meta = { ...row.meta, ...previous, source: 'legacy_work_info', updatedBy: actor };
+                        continue;
+                    }
+                    if (!vendorManager || row.type !== 'vendor' || !normalizeWorkClientName(row.name)) continue;
+
+                    const nameKey = normalizeWorkClientName(row.name);
+                    let master = mastersByName.get(nameKey);
+                    if (!master) {
+                        master = await WorkClientDetail.create({
+                            employee_id: null,
+                            type: 'vendor',
+                            name: row.name,
+                            address: row.address || null,
+                            start_date: row.start_date || null,
+                            end_date: row.end_date || null,
+                            phone: row.phone || null,
+                            email: row.email || null,
+                            contact_person: row.contact_person || null,
+                            fein: row.fein || null,
+                            meta: {
+                                source: 'admin_work_info',
+                                status: 'Active',
+                                comment: '',
+                                members: 0,
+                                createdBy: actor,
+                                updatedBy: actor,
+                                vendor: { enabled: false, name: '', startDate: '', endDate: '' },
+                                primeVendor: { enabled: false, name: '', startDate: '', endDate: '' },
+                                client: { enabled: false, name: '', startDate: '', endDate: '' },
+                                billingContactName: '', billingEmail: '', billingAddress: '',
+                                billingAddressSameAsVendorAddress: false, paymentTerms: 'Net 30', currency: 'USD',
+                            },
+                        }, { transaction: t });
+                        mastersByName.set(nameKey, master);
+                    }
+                    row.meta = { ...row.meta, source: 'admin_work_info', assignedByAdmin: true, vendorMasterId: master.id, createdBy: actor, updatedBy: actor };
                 }
             }
             await WorkClientDetail.destroy({ where: { employee_id: id }, transaction: t });
@@ -531,13 +672,15 @@ exports.submitOnboarding = async (req, res) => {
 
         // Mark the submitted tab and check if all required tabs are done
         const REQUIRED_TABS = ['personal', 'onboardDocs', 'profileWork', 'education', 'skills', 'documents'];
-        const submittedTab = req.body?.tab;
         // Personal Info now owns the embedded Onboard Docs workflow. Preserve
         // the legacy onboardDocs completion flag for existing completion and
         // reporting logic, while keeping a single employee-facing submission.
-        const submittedTabsForRequest = submittedTab === 'personal' && req.body?.includeOnboardDocs === true
+        let submittedTabsForRequest = submittedTab === 'personal' && req.body?.includeOnboardDocs === true
             ? ['personal', 'onboardDocs']
             : submittedTab ? [submittedTab] : [];
+        // Admin saves must never lock an employee's Work Info fields. Employee
+        // submission is the single event that marks this tab read-only.
+        if (isAdmin(req.user) && submittedTab === 'profileWork') submittedTabsForRequest = [];
         const emp = await Employee.findByPk(id, { transaction: t });
         const currentTabs = emp?.submittedTabs || {};
         const updatedTabs = submittedTabsForRequest.length
@@ -560,6 +703,7 @@ exports.submitOnboarding = async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         await t.rollback();
+        rollbackPromotions(promotedMoves);
         res.status(500).json({ error: err.message });
     }
 };

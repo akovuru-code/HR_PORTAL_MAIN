@@ -36,11 +36,13 @@ function collectWorkClientDrafts(draftMap = {}, workDraft = null) {
   return drafts;
 }
 
-function buildWorkClientRows(workClientDrafts, employeeId) {
+function buildWorkClientRows(workClientDrafts, employeeId, ownership = {}) {
   const rows = [];
+  const source = ownership.source || 'employee_work_info';
+  const actor = ownership.actor || '';
 
   for (const { payload = {}, employerType, employerIndex } of workClientDrafts) {
-    const baseMeta = { employerType, employerIndex };
+    const baseMeta = { employerType, employerIndex, source, createdBy: actor, updatedBy: actor };
 
     for (const [detailIndex, client] of (Array.isArray(payload.clientInfo) ? payload.clientInfo : []).entries()) {
       const countryCode = client.managerPhoneCountryCode || client.countryCode || null;

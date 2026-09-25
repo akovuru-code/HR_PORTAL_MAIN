@@ -122,6 +122,11 @@ exports.registerDocument = async (req, res) => {
 
     const { name, url, filename, originalName, document_type, fileData, expiry } = req.body;
     if (!url) return res.status(400).json({ error: 'url is required' });
+    // A staged Work Info upload is intentionally not a final employee
+    // document. It is promoted atomically by onboarding submit instead.
+    if (String(url).startsWith('/api/local-upload/staged/')) {
+      return res.status(409).json({ error: 'Work Info documents are added only when the employee submits Work Info' });
+    }
 
     // Restricted documents are administered on behalf of an employee, so retain
     // the actual authenticated administrator in the audit-facing label.

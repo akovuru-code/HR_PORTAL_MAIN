@@ -6,8 +6,8 @@ const fs = require('fs');
 const authenticateToken = require('../middleware/auth');
 const { requireEmployeeSelfOrAnyPermission } = require('../middleware/authorization');
 const Document = require('../models/document');
+const { UPLOAD_DIR, STAGING_DIR } = require('../utils/workInfoDocumentLifecycle');
 
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 
 // Ensure upload directory exists
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -17,7 +17,8 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const employeeId = req.params.employeeId || 'unknown';
-        const dir = path.join(UPLOAD_DIR, String(employeeId));
+        const root = req.query.stage === 'work-info' ? STAGING_DIR : UPLOAD_DIR;
+        const dir = path.join(root, String(employeeId));
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         cb(null, dir);
     },
@@ -61,30 +62,61 @@ function isWorkInfoDocument(document, filename = '') {
     return /^(work_|present_employer_|previous_employer_)/i.test(String(document?.document_type || filename || ''));
 }
 
-// Work Info and Company files are authenticated before download so role-based
-// access cannot be bypassed by opening a copied file URL.
+function safeFilePath(root, employeeId, filename) {
+    if (!filename || path.basename(filename) !== filename) return null;
+    return path.join(root, String(employeeId), filename);
+}
+
+async function canAccessEmployeeFile(user, employeeId) {
+    const accountType = String(user?.accountType || user?.account_type || user?.role || '').toLowerCase();
+    if (accountType === 'employee') {
+        if (String(user?.employeeId) === String(employeeId)) return true;
+        // Some older login tokens do not carry employeeId. Resolve ownership
+        // from the authenticated account rather than denying its own document.
+        const Employee = require('../models/employee');
+        const employee = await Employee.findOne({ where: { email: user?.email } });
+        return String(employee?.employee_id) === String(employeeId);
+    }
+    // File previews are available to authenticated administrators. Individual
+    // category rules below still restrict Company and Work Info documents.
+    return ['admin', 'root_admin', 'hr'].includes(accountType);
+}
+
+function sendProtectedFile(filePath, req, res) {
+    if (req.query.download === '1') return res.download(filePath);
+    return res.sendFile(filePath);
+}
+
+// Every local document is authenticated. Browser navigation cannot supply the
+// Authorization header, so the frontend opens these URLs through Axios blobs.
 // GET /api/local-upload/file/:employeeId/:filename
-router.get('/file/:employeeId/:filename', async (req, res) => {
-    const filePath = path.join(UPLOAD_DIR, req.params.employeeId, req.params.filename);
+router.get('/file/:employeeId/:filename', authenticateToken, async (req, res) => {
+    if (!await canAccessEmployeeFile(req.user, req.params.employeeId)) return res.status(403).json({ error: 'Forbidden' });
+    const filePath = safeFilePath(UPLOAD_DIR, req.params.employeeId, req.params.filename);
+    if (!filePath) return res.status(400).json({ error: 'Invalid filename' });
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
     try {
         const url = `/api/local-upload/file/${req.params.employeeId}/${req.params.filename}`;
         const document = await Document.findOne({ where: { url } });
-        const protectedDocument = (document && (isCompanyDocument(document) || isWorkInfoDocument(document))) ||
-            isWorkInfoDocument(null, req.params.filename);
-        if (!protectedDocument) return res.sendFile(filePath);
-        return authenticateToken(req, res, () => {
-            if ((document && isCompanyDocument(document)) && !canViewCompanyDocuments(req.user)) {
-                return res.status(403).json({ error: 'Company documents are available only to Root Admin and HR Admin' });
-            }
-            if (isWorkInfoDocument(document, req.params.filename) && isRecruitingAdmin(req.user)) {
-                return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
-            }
-            return res.sendFile(filePath);
-        });
+        if ((document && isCompanyDocument(document)) && !canViewCompanyDocuments(req.user)) {
+            return res.status(403).json({ error: 'Company documents are available only to Root Admin and HR Admin' });
+        }
+        if (isWorkInfoDocument(document, req.params.filename) && isRecruitingAdmin(req.user)) {
+            return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
+        }
+        return sendProtectedFile(filePath, req, res);
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
+});
+
+router.get('/staged/:employeeId/:filename', authenticateToken, async (req, res) => {
+    if (!await canAccessEmployeeFile(req.user, req.params.employeeId)) return res.status(403).json({ error: 'Forbidden' });
+    const filePath = safeFilePath(STAGING_DIR, req.params.employeeId, req.params.filename);
+    if (!filePath) return res.status(400).json({ error: 'Invalid filename' });
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    if (isRecruitingAdmin(req.user)) return res.status(403).json({ error: 'Recruiting Admin cannot access Work Info documents' });
+    return sendProtectedFile(filePath, req, res);
 });
 
 // All routes below require authentication
@@ -95,7 +127,10 @@ router.use(authenticateToken);
 // Body (multipart): file, category (e.g. passport, visa, dl, marriage_cert, etc.)
 router.post('/:employeeId', requireEmployeeSelfOrAnyPermission(['employee:update', 'payroll:upload', 'documents:manage']), upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const filePath = `/api/local-upload/file/${req.params.employeeId}/${req.file.filename}`;
+    const staged = req.query.stage === 'work-info';
+    const filePath = staged
+        ? `/api/local-upload/staged/${req.params.employeeId}/${req.file.filename}`
+        : `/api/local-upload/file/${req.params.employeeId}/${req.file.filename}`;
     const role = String(req.user.accountType || req.user.role || '').toLowerCase();
     const uploadedBy = {
         userId: req.user.id,
@@ -110,6 +145,8 @@ router.post('/:employeeId', requireEmployeeSelfOrAnyPermission(['employee:update
             size: req.file.size,
             url: filePath,
             category: req.body.category || 'doc',
+            documentName: req.body.documentName || null,
+            staged,
             uploadedBy,
         }
     });

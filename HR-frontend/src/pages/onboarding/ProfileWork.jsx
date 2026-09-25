@@ -524,75 +524,6 @@ export default function ProfileWork() {
 
   /*
    * ============================================================
-   * DOCUMENT SYNC
-   * ============================================================
-   */
-
-  const syncEmployerDocs = async () => {
-    try {
-      const api2 = (
-        await import("axios")
-      ).default.create({
-        baseURL: "/api",
-        headers: {
-          Authorization:
-            `Bearer ${localStorage.getItem("token")}`,
-        },
-      });
-
-      const allEmployers = [
-        ...presentEmployers.map((e, i) => ({
-          file: e.docFile,
-          name:
-            `Present Employer ${i + 1} Document`,
-          type:
-            `present_employer_${i}`,
-        })),
-
-        ...previousEmployers.map((e, i) => ({
-          file: e.docFile,
-          name:
-            `Previous Employer ${i + 1} Document`,
-          type:
-            `previous_employer_${i}`,
-        })),
-      ];
-
-      for (
-        const { file, name, type }
-        of allEmployers
-      ) {
-        if (file?.url) {
-          registerDocument({
-            employeeId,
-            name,
-            url: file.url,
-            filename: file.filename,
-            originalName:
-              file.originalName,
-            document_type: type,
-            fileData: file,
-          }).catch(() => { });
-        } else {
-          api2
-            .delete(
-              `/documents/type/${encodeURIComponent(
-                type
-              )}`
-            )
-            .catch(() => { });
-        }
-      }
-    } catch (err) {
-      console.error(
-        "Document sync failed:",
-        err
-      );
-    }
-  };
-
-  /*
-   * ============================================================
    * SAVE
    * ============================================================
    */
@@ -662,8 +593,6 @@ export default function ProfileWork() {
       ) {
         await workClientRef.current.saveDraft();
       }
-
-      await syncEmployerDocs();
 
       alert("Draft saved");
     } catch (err) {
@@ -1048,15 +977,16 @@ export default function ProfileWork() {
 
   const handleEmployerDocumentChange = (type, idx, file) => {
     handleEmployerChange(type, idx, 'docFile', file);
-    const documentType = `${type}_employer_${idx}`;
-    if (file?.url) {
+    // Admin-provided files retain the established immediate registration flow.
+    // Employee files are staged and registered only by the server on Submit.
+    if (targetEmployeeId && file?.url) {
       registerDocument({
         employeeId,
         name: `${type === 'present' ? 'Present' : 'Previous'} Employer ${idx + 1} Document`,
         url: file.url,
         filename: file.filename,
         originalName: file.originalName,
-        document_type: documentType,
+        document_type: `${type}_employer_${idx}`,
         fileData: file,
       }).catch(() => {});
     }
@@ -1369,8 +1299,6 @@ export default function ProfileWork() {
           await workClientRef.current.saveDraft();
         }
 
-        await syncEmployerDocs();
-
         /*
          * Submit only after the complete payload
          * has successfully been saved.
@@ -1604,6 +1532,7 @@ export default function ProfileWork() {
                               handleEmployerDocumentChange("present", idx, fileInfo)
                             }
                             disabled={areDocumentsReadOnly}
+                            stageWorkInfo={!targetEmployeeId}
                           />}
 
                           <EmpTypography.small className="text-gray-500 mt-1">
@@ -2262,6 +2191,7 @@ export default function ProfileWork() {
                         handleEmployerDocumentChange("previous", idx, fileInfo)
                       }
                       disabled={areDocumentsReadOnly}
+                      stageWorkInfo={!targetEmployeeId}
                     />}
 
                     <EmpTypography.small className="text-gray-500 mt-1">

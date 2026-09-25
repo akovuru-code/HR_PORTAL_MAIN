@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import AdminTypography from "../../components/admin/AdminTypography";
 import { useAuth } from "../../hooks/useAuth";
 import { requestOrUseAdminAction } from "../../utils/adminDeleteRequest";
+import { openProtectedFile } from "../../api/onboarding";
 import axios from "axios";
 
 const api = axios.create({ baseURL: "/api" });
@@ -315,10 +316,10 @@ export default function AdminDocuments() {
 
     const viewDocument = async (document) => {
         try {
-            const response = await api.get(document.url, { responseType: "blob" });
-            const objectUrl = URL.createObjectURL(response.data);
-            window.open(objectUrl, "_blank", "noopener,noreferrer");
-            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+            // Stored document URLs already start with `/api`. Use the shared
+            // protected-file helper so Axios does not combine them with this
+            // component's `/api` baseURL and request `/api/api/...`.
+            await openProtectedFile(document.url);
         } catch (err) {
             alert(err?.response?.data?.error || "Unable to open document.");
         }

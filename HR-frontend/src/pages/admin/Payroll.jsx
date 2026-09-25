@@ -336,6 +336,7 @@ export default function AdminPayroll() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editPayroll, setEditPayroll] = useState(null);
   const [employeeData, setEmployeeData] = useState([]);
+  const [filePreview, setFilePreview] = useState({ isOpen: false, blobUrl: "", title: "", previewType: "" });
 
   function handleFilterDateChange(setDate, otherDate, setOtherDate, isFrom) {
     return (e) => {
@@ -464,43 +465,63 @@ export default function AdminPayroll() {
     }
   }
 
-  function handleViewW2(payroll) {
-    if (payroll.w2FileUrl) {
-      window.open(payroll.w2FileUrl, "_blank");
-    } else {
-      alert(`W2 File (${payroll.w2FileName || "No Document Attached"}) URL reference is not uploaded yet.`);
+  const fetchPayrollFile = async (payrollId, field, disposition) => {
+    const response = await fetch(
+      `/api/payroll/file/${payrollId}?field=${field}&disposition=${disposition}`,
+      { headers: authHeaders() },
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "Unable to load payroll document.");
     }
-  }
+    return response;
+  };
 
-  function handleViewPayCheque(payroll) {
-    if (payroll.payChequeFileUrl) {
-      window.open(payroll.payChequeFileUrl, "_blank");
-    } else {
-      alert(`Pay Cheque File (${payroll.payChequeFileName || "No Document Attached"}) URL reference is not uploaded yet.`);
-    }
-  }
-
-  function handleDownloadW2(payroll) {
-    if (!payroll.w2FileUrl) {
-      alert("W2 document asset file is not available for standard local download.");
+  const previewPayrollFile = async (payroll, field, title) => {
+    const available = field === "w2" ? payroll.w2FileUrl : payroll.payChequeFileUrl;
+    if (!available) {
+      alert(`${title} is not available.`);
       return;
     }
-    const link = document.createElement("a");
-    link.href = payroll.w2FileUrl;
-    link.download = payroll.w2FileName || `W2_${payroll.employeeName}`;
-    link.click();
-  }
+    try {
+      const response = await fetchPayrollFile(payroll.id, field, "inline");
+      const contentType = response.headers.get("content-type") || "";
+      const blob = await response.blob();
+      if (!contentType.startsWith("image/") && !contentType.includes("pdf")) {
+        setFilePreview({ isOpen: true, blobUrl: "", title, previewType: "unsupported" });
+        return;
+      }
+      setFilePreview({ isOpen: true, blobUrl: URL.createObjectURL(blob), title, previewType: "supported" });
+    } catch (error) {
+      alert(error.message || "Unable to open payroll document.");
+    }
+  };
 
-  function handleDownloadPayCheque(payroll) {
-    if (!payroll.payChequeFileUrl) {
-      alert("Pay Cheque document asset file is not available for standard local download.");
+  const downloadPayrollFile = async (payroll, field, filename) => {
+    const available = field === "w2" ? payroll.w2FileUrl : payroll.payChequeFileUrl;
+    if (!available) {
+      alert("Payroll document is not available for download.");
       return;
     }
-    const link = document.createElement("a");
-    link.href = payroll.payChequeFileUrl;
-    link.download = payroll.payChequeFileName || `PayCheque_${payroll.employeeName}`;
-    link.click();
-  }
+    try {
+      const response = await fetchPayrollFile(payroll.id, field, "attachment");
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename || "document.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (error) {
+      alert(error.message || "Unable to download payroll document.");
+    }
+  };
+
+  const closeFilePreview = () => {
+    if (filePreview.blobUrl) URL.revokeObjectURL(filePreview.blobUrl);
+    setFilePreview({ isOpen: false, blobUrl: "", title: "", previewType: "" });
+  };
 
   async function handleSave(payroll) {
     const user = getLoggedInUser();
@@ -688,7 +709,7 @@ export default function AdminPayroll() {
                   <td className="px-4 py-3 text-center">
                     <AdminTypography.button
                       className="px-3 py-1 bg-gray-100 text-blue-700 rounded hover:bg-blue-100 border border-blue-200 text-xs"
-                      onClick={() => handleViewW2(payroll)}
+                      onClick={() => previewPayrollFile(payroll, "w2", `W2 — ${payroll.payrollNumber || payroll.nameOrNumber || "Payroll"}`)}
                       aria-label={`View W2 for ${payroll.employeeName}`}
                     >
                       View
@@ -698,7 +719,7 @@ export default function AdminPayroll() {
                   <td className="px-4 py-3 text-center">
                     <AdminTypography.button
                       className="px-3 py-1 bg-green-100 text-green-800 rounded hover:bg-green-200 text-xs font-medium"
-                      onClick={() => handleDownloadW2(payroll)}
+                      onClick={() => downloadPayrollFile(payroll, "w2", payroll.w2FileName || `W2_${payroll.employeeName || "document"}.pdf`)}
                       aria-label={`Download W2 for ${payroll.employeeName}`}
                     >
                       Download
@@ -708,7 +729,7 @@ export default function AdminPayroll() {
                   <td className="px-4 py-3 text-center">
                     <AdminTypography.button
                       className="px-3 py-1 bg-gray-100 text-blue-700 rounded hover:bg-blue-100 border border-blue-200 text-xs"
-                      onClick={() => handleViewPayCheque(payroll)}
+                      onClick={() => previewPayrollFile(payroll, "paycheque", `Pay Cheque — ${payroll.payrollNumber || payroll.nameOrNumber || "Payroll"}`)}
                       aria-label={`View Paycheque for ${payroll.employeeName}`}
                     >
                       View
@@ -718,7 +739,7 @@ export default function AdminPayroll() {
                   <td className="px-4 py-3 text-center">
                     <AdminTypography.button
                       className="px-3 py-1 bg-green-100 text-green-800 rounded hover:bg-green-200 text-xs font-medium"
-                      onClick={() => handleDownloadPayCheque(payroll)}
+                      onClick={() => downloadPayrollFile(payroll, "paycheque", payroll.payChequeFileName || `PayCheque_${payroll.employeeName || "document"}.pdf`)}
                       aria-label={`Download Pay Cheque for ${payroll.employeeName}`}
                     >
                       Download
@@ -759,6 +780,21 @@ export default function AdminPayroll() {
         isEdit={!!editPayroll}
         employeeData={employeeData}
       />}
+      {filePreview.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <span className="truncate pr-4 font-semibold text-gray-800">{filePreview.title}</span>
+              <button type="button" onClick={closeFilePreview} className="text-2xl leading-none text-gray-400 hover:text-gray-700" aria-label="Close preview">×</button>
+            </div>
+            {filePreview.previewType === "unsupported" ? (
+              <div className="flex flex-1 items-center justify-center p-6 text-center text-gray-700">Preview is not supported for this file type. Please use Download.</div>
+            ) : (
+              <iframe src={filePreview.blobUrl} title={filePreview.title} className="min-h-0 flex-1 w-full border-0" />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

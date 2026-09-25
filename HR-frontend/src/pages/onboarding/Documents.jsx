@@ -4,7 +4,7 @@ import { useOnboardingPermissions } from "../../hooks/useOnboardingPermissions";
 import { useDocumentsStore } from "../../store/documentsStore";
 import { useAuth } from "../../hooks/useAuth";
 import { useAdminView } from "../../contexts/AdminViewContext";
-import { saveOnboardingFull, submitOnboarding, getDraft, getOnboarding, getDocuments, registerDocument } from "../../api/onboarding";
+import { saveOnboardingFull, submitOnboarding, getDraft, getOnboarding, getDocuments, registerDocument, openProtectedFile } from "../../api/onboarding";
 import { confirmOrRequestDelete } from "../../utils/adminDeleteRequest";
 import axios from "axios";
 
@@ -43,11 +43,12 @@ function clampDateYear(value) {
 function buildPersonalInfoDocs(employee) {
   if (!employee) return [];
   const rows = [];
-  const addRow = (id, name, fileInfo, expiry) => {
+  const addRow = (id, name, documentType, fileInfo, expiry) => {
     if (fileInfo && fileInfo.url) {
       rows.push({
         id,
         name,
+        documentType,
         file: fileInfo,
         source: "personal-info",
         readOnly: true,
@@ -56,23 +57,25 @@ function buildPersonalInfoDocs(employee) {
       });
     }
   };
-  addRow("pi-passport", "Passport", employee.passportFile, employee.passportExpiry);
-  addRow("pi-visa", "Visa", employee.visaFile, employee.visaExpiry);
-  addRow("pi-dl", "Driving License", employee.dlFile, employee.dlExpiry);
-  addRow("pi-marriage-cert", "Marriage Certificate", employee.marriageCertFile, null);
+  addRow("pi-passport", "Passport - current", "passport", employee.passportFile, employee.passportExpiry);
+  addRow("pi-passport-additional", "Passport - additional/previous pages", "passport_additional", employee.passportFile2, employee.passportExpiry);
+  addRow("pi-visa", "Visa", "visa", employee.visaFile, employee.visaExpiry);
+  addRow("pi-dl", "Driving License", "dl", employee.dlFile, employee.dlExpiry);
+  addRow("pi-marriage-cert", "Marriage Certificate", "marriage_cert", employee.marriageCertFile, null);
 
   // Spouse docs
   const spouse = employee.Spouse;
   if (spouse) {
-    addRow("pi-spouse-passport", "Spouse Passport", spouse.passportFile, spouse.passport_expiry);
-    addRow("pi-spouse-visa", "Spouse Visa", spouse.visaFile, spouse.visa_expiry);
-    addRow("pi-spouse-dl", "Spouse Driving License", spouse.dlFile, spouse.dl_expiry);
+    addRow("pi-spouse-passport", "Spouse Passport - current", "spouse_passport", spouse.passportFile, spouse.passport_expiry);
+    addRow("pi-spouse-passport-additional", "Spouse Passport - additional/previous pages", "spouse_passport_additional", spouse.passportFile2, spouse.passport_expiry);
+    addRow("pi-spouse-visa", "Spouse Visa", "spouse_visa", spouse.visaFile, spouse.visa_expiry);
+    addRow("pi-spouse-dl", "Spouse Driving License", "spouse_dl", spouse.dlFile, spouse.dl_expiry);
   }
 
   // Kid docs
   const kids = employee.Kids || [];
   kids.forEach((kid, i) => {
-    addRow(`pi-kid-${kid.kid_id || i}`, `Kid ${i + 1} Document`, kid.docFile, kid.passport_expiry);
+    addRow(`pi-kid-${kid.kid_id || i}`, `Kid ${i + 1} Document`, `kid_${i}_document`, kid.docFile, kid.passport_expiry);
   });
 
   return rows;
@@ -88,9 +91,20 @@ const toDocumentRow = (document) => ({
   modifiedBy: document.modifiedBy || "",
   file: document.fileData || (document.url ? { url: document.url, originalName: document.originalName, filename: document.filename } : null),
   source: document.document_type || "user-added",
+  documentType: document.document_type || null,
   categoryType: document.fileData?.categoryType || null,
   readOnly: false,
 });
+
+function mergePersonalInfoDocs(documentRows, personalInfoRows) {
+  const registeredTypes = new Set(
+    documentRows.map((doc) => doc.documentType || doc.source).filter(Boolean)
+  );
+  return [
+    ...documentRows,
+    ...personalInfoRows.filter((doc) => !registeredTypes.has(doc.documentType)),
+  ];
+}
 
 // Maps dropdown category values to document_type prefixes/values stored in `source`
 const CATEGORY_MAP = {
@@ -210,9 +224,14 @@ export default function ProfileDocuments() {
         if (!employeeId) return;
 
         // Load all documents from the Document table for the selected employee
-        const docsRes = await getDocuments(employeeId);
+        const [docsRes, onboardingRes] = await Promise.all([
+          getDocuments(employeeId),
+          getOnboarding(employeeId),
+        ]);
         const allDocs = (docsRes?.data?.documents || []).map(toDocumentRow);
-        const normalDocs = allDocs.filter(doc => !isRestrictedDocument(doc));
+        const registeredNormalDocs = allDocs.filter(doc => !isRestrictedDocument(doc));
+        const personalInfoDocs = buildPersonalInfoDocs(onboardingRes?.data?.employee);
+        const normalDocs = mergePersonalInfoDocs(registeredNormalDocs, personalInfoDocs);
         const employeeRestrictedDocs = allDocs.filter(isRestrictedDocument);
 
         // Overlay with draft if exists — draft reflects unsaved deletions in this tab
@@ -404,17 +423,17 @@ export default function ProfileDocuments() {
     }
   };
 
-  const handleDownload = (doc) => {
+  const handleDownload = async (doc) => {
     if (doc.file?.url) {
-      window.open(doc.file.url, "_blank");
+      try { await openProtectedFile(doc.file.url); } catch (err) { alert(err?.response?.data?.error || 'Unable to open document.'); }
     } else {
       alert("No file uploaded for this document.");
     }
   };
 
-  const handleView = (doc) => {
+  const handleView = async (doc) => {
     if (doc.file?.url) {
-      window.open(doc.file.url, "_blank");
+      try { await openProtectedFile(doc.file.url); } catch (err) { alert(err?.response?.data?.error || 'Unable to open document.'); }
     } else {
       alert("No file uploaded for this document.");
     }
